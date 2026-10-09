@@ -1,11 +1,10 @@
 [build-system]
 requires = [
-    "setuptools>=42",
-    "wheel",
     "scikit-build-core>=0.5",
-    "pybind11>=2.10.0"
+    "nanobind>=2.0",
+    "numpy",
 ]
-build-backend = "setuptools.build_meta"
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "axono"
@@ -27,41 +26,22 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dynamic = ["dependencies"]
+dependencies = ["numpy"]
 
 [project.urls]
 Homepage = "https://github.com/ByteRainTech/Axono"
 Repository = "https://github.com/ByteRainTech/Axono"
 Documentation = "https://axono.readthedocs.io"
 
-[tool.setuptools]
-package-dir = { "" = "python" }
-packages = [
-    "axono",
-    "axono.core",
-    "axono.nn",
-    "axono.core.operators",
-    "axono.core.ops"
-]
-include-package-data = true
-zip-safe = false
+[tool.scikit-build]
+# 源码布局: 顶层 CMakeLists.txt; Python 包在 axono/python/axono
+wheel.packages = ["axono/python/axono"]
+cmake.verbose = false
+# 编译产物 libaxono*.so 由 CMake install 到包内 (见 axono/CMakeLists.txt)
+build-dir = "build/{wheel_tag}"
 
-[tool.setuptools.package-data]
-"*" = ["*.dll", "*.so", "*.pyd"]
-
-[tool.setuptools.data-files]
-"axono/library" = [
-    "python/axono/library/*.dll",
-    "python/axono/library/*.so",
-    "python/axono/library/*.pyd",
-]
-
-[[tool.setuptools.ext-modules]]
-name = "axono.core.axonolib"
-sources = ["python/axono/_pseudo.c"]
-
-[tool.setuptools.dynamic]
-dependencies = { file = "requirements.txt" }
+[tool.scikit-build.cmake.define]
+# pip install 时默认 CPU 构建; CUDA 由环境变量 AXONO_WITH_CUDA=1 开启
 
 [tool.ruff]
 line-length = 88
@@ -82,3 +62,6 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["axono"]
+
+[tool.pytest.ini_options]
+testpaths = ["axono/python/tests"]
