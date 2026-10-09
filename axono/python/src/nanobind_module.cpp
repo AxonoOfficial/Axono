@@ -2,6 +2,7 @@
 // 取代 dev 分支的 pybind11_module.cpp + include/axono/pybind/*。
 // 模块名保持 libaxono, Python 端 from libaxono import ... 不变。
 
+#include <mutex>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
@@ -27,8 +28,12 @@
 #include "axono/ops/cuda/relu.h"
 #endif
 #include "axono/ops/cpu/add.h"
+#include "axono/ops/cpu/elementwise.h"
 #include "axono/ops/cpu/matmul.h"
 #include "axono/ops/cpu/relu.h"
+#ifdef AXONO_WITH_CUDA
+#include "axono/ops/cuda/elementwise.h"
+#endif
 
 namespace nb = nanobind;
 using namespace axono;
@@ -86,6 +91,54 @@ core::Status check_device_match(const core::Tensor &a, const core::Tensor &b) {
   if (a.is_cuda() != b.is_cuda()) return core::Status::DEVICE_MISMATCH;
   return core::Status::OK;
 }
+
+// 逐元素算子按名分派 (避免在 CPU-only 构建里引用 CUDA 符号)
+using EwBinaryFn = core::Status (*)(const core::Context &, const core::Tensor &,
+                                    const core::Tensor &, core::Tensor &);
+using EwUnaryFn = core::Status (*)(const core::Context &, const core::Tensor &,
+                                   core::Tensor &);
+
+EwBinaryFn EwBinCpu(const char *name) {
+  std::string n(name);
+  if (n == "sub") return &ops::cpu::Sub;
+  if (n == "mul") return &ops::cpu::Mul;
+  if (n == "div") return &ops::cpu::Div;
+  return nullptr;
+}
+
+EwUnaryFn EwUnaryCpu(const char *name) {
+  std::string n(name);
+  if (n == "neg") return &ops::cpu::Neg;
+  if (n == "abs") return &ops::cpu::Abs;
+  if (n == "exp") return &ops::cpu::Exp;
+  if (n == "log") return &ops::cpu::Log;
+  if (n == "sqrt") return &ops::cpu::Sqrt;
+  if (n == "sigmoid") return &ops::cpu::Sigmoid;
+  if (n == "tanh") return &ops::cpu::Tanh;
+  return nullptr;
+}
+
+#ifdef AXONO_WITH_CUDA
+EwBinaryFn EwBinCuda(const char *name) {
+  std::string n(name);
+  if (n == "sub") return &ops::cuda::Sub;
+  if (n == "mul") return &ops::cuda::Mul;
+  if (n == "div") return &ops::cuda::Div;
+  return nullptr;
+}
+
+EwUnaryFn EwUnaryCuda(const char *name) {
+  std::string n(name);
+  if (n == "neg") return &ops::cuda::Neg;
+  if (n == "abs") return &ops::cuda::Abs;
+  if (n == "exp") return &ops::cuda::Exp;
+  if (n == "log") return &ops::cuda::Log;
+  if (n == "sqrt") return &ops::cuda::Sqrt;
+  if (n == "sigmoid") return &ops::cuda::Sigmoid;
+  if (n == "tanh") return &ops::cuda::Tanh;
+  return nullptr;
+}
+#endif
 
 }  // namespace
 
@@ -431,6 +484,73 @@ NB_MODULE(libaxono, m) {
                                std::to_string(static_cast<int>(st)));
   }, nb::arg("x"), nb::sig("def relu_(x) -> None"));
 
+  // ---- 逐元素算子 (sub/mul/div/neg/abs/exp/log/sqrt/sigmoid/tanh) ----
+  // 统一 helper: 设备分派 (CUDA 优先, 回退 CPU)
+  auto ew_binary = [&](const core::Tensor &a, const core::Tensor &b,
+                       const char *name) {
+    if (check_device_match(a, b) != core::Status::OK)
+      throw std::runtime_error(std::string(name) + ": 输入张量不在同一设备上");
+    if (a.dtype() != b.dtype())
+      throw std::runtime_error(std::string(name) + ": 数据类型不一致");
+    core::Tensor result(a.dtype(), a.shape(), a.device());
+    core::Status st;
+    if (a.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+      st = EwBinCuda(name)(core::Context(), a, b, result);
+#else
+      st = core::Status::DEVICE_ERROR;
+#endif
+    } else {
+      st = EwBinCpu(name)(core::Context(), a, b, result);
+    }
+    if (st != core::Status::OK)
+      throw std::runtime_error(std::string(name) + " 失败, 错误代码: " +
+                               std::to_string(static_cast<int>(st)));
+    return result;
+  };
+  auto ew_unary = [&](const core::Tensor &x, const char *name) {
+    core::Tensor result(x.dtype(), x.shape(), x.device());
+    core::Status st;
+    if (x.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+      st = EwUnaryCuda(name)(core::Context(), x, result);
+#else
+      st = core::Status::DEVICE_ERROR;
+#endif
+    } else {
+      st = EwUnaryCpu(name)(core::Context(), x, result);
+    }
+    if (st != core::Status::OK)
+      throw std::runtime_error(std::string(name) + " 失败, 错误代码: " +
+                               std::to_string(static_cast<int>(st)));
+    return result;
+  };
+
+  m.def("sub", [&](const core::Tensor &a, const core::Tensor &b) {
+         return ew_binary(a, b, "sub");
+       }, nb::arg("a"), nb::arg("b"));
+  m.def("mul", [&](const core::Tensor &a, const core::Tensor &b) {
+         return ew_binary(a, b, "mul");
+       }, nb::arg("a"), nb::arg("b"));
+  m.def("div", [&](const core::Tensor &a, const core::Tensor &b) {
+         return ew_binary(a, b, "div");
+       }, nb::arg("a"), nb::arg("b"));
+  m.def("neg", [&](const core::Tensor &x) { return ew_unary(x, "neg"); },
+       nb::arg("x"));
+  m.def("abs", [&](const core::Tensor &x) { return ew_unary(x, "abs"); },
+       nb::arg("x"));
+  m.def("exp", [&](const core::Tensor &x) { return ew_unary(x, "exp"); },
+       nb::arg("x"));
+  m.def("log", [&](const core::Tensor &x) { return ew_unary(x, "log"); },
+       nb::arg("x"));
+  m.def("sqrt", [&](const core::Tensor &x) { return ew_unary(x, "sqrt"); },
+       nb::arg("x"));
+  m.def("sigmoid", [&](const core::Tensor &x) {
+         return ew_unary(x, "sigmoid");
+       }, nb::arg("x"));
+  m.def("tanh", [&](const core::Tensor &x) { return ew_unary(x, "tanh"); },
+       nb::arg("x"));
+
   // ---- 信息 ----
   m.def("cuda_available", []() {
 #ifdef AXONO_WITH_CUDA
@@ -452,6 +572,24 @@ NB_MODULE(libaxono, m) {
   // ---- CUDA Graph ----
   // 低层流句柄 API (供 Python 上下文管理器使用)
   m.def("_graph_begin_capture", []() {
+         // 预热 matmul 后端句柄/workspace: cuBLAS/Lt 首次调用会做内部分配,
+         // 若发生在捕获体内会被判非法 (捕获禁止分配/同步)。
+         // 用 1x1 matmul 走一遍完整路径 (含 Lt heuristic + 回退), 仅一次。
+         static std::once_flag warm_once;
+         std::call_once(warm_once, [] {
+           // 用带设备串的构造建 CUDA 张量 (Create() 是 CPU 的)
+           core::Tensor a(core::DataType::FLOAT32, core::Shape{8, 8},
+                          "cuda");
+           core::Tensor b(core::DataType::FLOAT32, core::Shape{8, 8},
+                          "cuda");
+           core::Tensor c(core::DataType::FLOAT32, core::Shape{8, 8},
+                          "cuda");
+           ops::cuda::MatMul(core::Context(), a, b, c);
+         });
+         // 捕获流是 non-blocking, 与默认流无隐式同步 —— 捕获前必须等
+         // 所有已提交的 kernel (如输入填充) 完成, 否则图内 kernel 与
+         // 它们产生竞态 (回放读到未写入的数据)。
+         cudaDeviceSynchronize();
          cudaStream_t stream = nullptr;
          core::Status st = core::cuda::BeginGraphCapture(&stream);
          if (st != core::Status::OK)

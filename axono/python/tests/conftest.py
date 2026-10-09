@@ -45,6 +45,15 @@ def device(request):
 
 
 @pytest.fixture
+def cuda_env():
+    if not axono.cuda_available():
+        pytest.skip("需要 CUDA 构建")
+    axono.set_backend("cuda")
+    yield
+    axono.set_backend("cpu")
+
+
+@pytest.fixture
 def rng():
     return np.random.default_rng(0)
 

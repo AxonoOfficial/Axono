@@ -10,6 +10,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .elementwise import abs, exp, log, neg, sigmoid, sqrt, tanh
 from .relu import relu, relu_
 
-__all__ = ["relu", "relu_"]
+__all__ = [
+    "relu",
+    "relu_",
+    "neg",
+    "abs",
+    "exp",
+    "log",
+    "sqrt",
+    "sigmoid",
+    "tanh",
+]

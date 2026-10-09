@@ -11,6 +11,7 @@
 # limitations under the License.
 
 from .add import add
+from .elementwise import div, mul, sub
 from .matmul import matmul
 
-__all__ = ["add", "matmul"]
+__all__ = ["add", "matmul", "sub", "mul", "div"]

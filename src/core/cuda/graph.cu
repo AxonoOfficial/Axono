@@ -165,6 +165,8 @@ void CudaGraphExec::Reset() {
 
 Status BeginGraphCapture(cudaStream_t *out_stream) {
   cudaStream_t stream = nullptr;
+  // 预热失败残留的 sticky error 会让后续一切 CUDA 调用失败 —— 清掉。
+  cudaGetLastError();
   try {
     AXONO_CUDA_CHECK(
         cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));

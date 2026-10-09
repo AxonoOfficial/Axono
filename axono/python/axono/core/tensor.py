@@ -171,6 +171,36 @@ def _tensor_add(self, other) -> "Tensor":
     return add(self, other)
 
 
+def _tensor_sub(self, other) -> "Tensor":
+    from .operators import sub
+
+    return sub(self, other)
+
+
+def _tensor_mul(self, other) -> "Tensor":
+    from .operators import mul
+
+    return mul(self, other)
+
+
+def _tensor_truediv(self, other) -> "Tensor":
+    from .operators import div
+
+    return div(self, other)
+
+
+def _tensor_neg(self) -> "Tensor":
+    from .ops import neg
+
+    return neg(self)
+
+
+def _tensor_abs(self) -> "Tensor":
+    from .ops import abs as _abs
+
+    return _abs(self)
+
+
 def _tensor_is_same_shape(self, other: "Tensor") -> bool:
     return self.is_same_shape(other)
 
@@ -242,6 +272,11 @@ def _attach() -> None:
     Tensor.__matmul__ = _tensor_matmul
     Tensor.__add__ = _tensor_add
     Tensor.__radd__ = _tensor_add
+    Tensor.__sub__ = _tensor_sub
+    Tensor.__mul__ = _tensor_mul
+    Tensor.__truediv__ = _tensor_truediv
+    Tensor.__neg__ = _tensor_neg
+    Tensor.__abs__ = _tensor_abs
 
 
 _attach()

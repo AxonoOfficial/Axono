@@ -25,10 +25,15 @@
     g.capture(lambda: model(x))       # 2) 捕获
     g.replay()                        # 3) 回放 (可重复调用)
 
-    # 上下文管理器写法 (块内 g.output = y 指定输出)
+    # 多输出: fn 返回 tuple, 回放后 g.outputs 中每个缓冲同时更新
+    g.capture(lambda: (relu(a @ b), tanh(c @ d)))
+    g.replay()
+    y1, y2 = g.outputs
+
+    # 上下文管理器写法 (块内 g.output = y 指定输出, 也接受 tuple)
     with axono.cuda_graph() as g2:
         y = model(x)
-        g2.output = y
+        g2.output = (y, y2)           # 多输出
     g2.replay()                       # 3) 回放 (可重复调用)
 
 约束 (与 CUDA 原生一致):
@@ -63,6 +68,10 @@ class CUDAGraph:
            图内只含 kernel 节点 (实测部分 CUDA 版本上, 含 alloc 节点的
            图无法重复 launch);
         3. ``fn`` 的返回值保存到 ``self.output``, 回放后从该缓冲区读结果。
+
+        多输出: 若 ``fn`` 返回 tuple/list, 则各元素分别保存到
+        ``self.outputs`` (list) 且 ``self.output`` 指向第一个; 回放时
+        所有输出缓冲原地更新。
         """
         holder: dict = {}
 
@@ -70,8 +79,16 @@ class CUDAGraph:
             holder["out"] = fn()
 
         self._impl.capture(_body)
-        self._output = holder.get("out")
+        self._set_outputs(holder.get("out"))
         return self
+
+    def _set_outputs(self, value) -> None:
+        """规范化输出: 单值 -> [v]; tuple/list -> 原样列表。"""
+        if isinstance(value, (tuple, list)):
+            self._outputs = list(value)
+        else:
+            self._outputs = [value]
+        self._output = self._outputs[0] if self._outputs else None
 
     def replay(self) -> CUDAGraph:
         """回放已捕获的图 (CPU 端只发一次 launch)。"""
@@ -80,13 +97,26 @@ class CUDAGraph:
 
     @property
     def output(self):
-        """捕获时 ``fn`` 的返回值 (回放后其数据被原地更新)。"""
+        """捕获时 ``fn`` 的第一个返回值 (回放后其数据被原地更新)。"""
         return getattr(self, "_output", None)
 
     @output.setter
     def output(self, value):
-        """``with`` 用法: 在捕获块内 ``g.output = y`` 显式指定输出张量。"""
-        self._output = value
+        """``with`` 用法: 在捕获块内 ``g.output = y`` 显式指定输出。
+
+        也接受 tuple/list —— 此时等价于 ``g.outputs = (y1, y2)``,
+        回放后每个缓冲都被原地更新 (多输出)。
+        """
+        self._set_outputs(value)
+
+    @property
+    def outputs(self):
+        """所有输出张量列表 (单输出时为长度 1 的列表)。"""
+        return list(getattr(self, "_outputs", []))
+
+    @outputs.setter
+    def outputs(self, values):
+        self._set_outputs(values)
 
     def sync(self) -> CUDAGraph:
         """等待图中所有 kernel 完成。"""
@@ -119,7 +149,7 @@ class cuda_graph:  # noqa: N801 — 上下文管理器惯用小写命名 (与 th
 
         with axono.cuda_graph() as g:
             y = model(x)
-            g.output = y          # 显式指定输出, 回放后从此读结果
+            g.output = y          # 单输出; 多输出: g.output = (y1, y2)
         g.replay()
         print(g.output.to_numpy())
     """

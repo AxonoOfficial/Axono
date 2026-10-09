@@ -33,8 +33,18 @@ from .core.config import (
     set_inplace_enabled,
 )
 from .core.cuda_graph import CUDAGraph, cuda_graph
-from .core.ops import relu, relu_
-from .core.operators import add, matmul
+from .core.ops import (
+    abs,
+    exp,
+    log,
+    neg,
+    relu,
+    relu_,
+    sigmoid,
+    sqrt,
+    tanh,
+)
+from .core.operators import add, div, matmul, mul, sub
 
 __version__ = "0.2.0"
 __author__ = "ByteRainLab"
@@ -47,7 +57,17 @@ __all__ = [
     "operators",
     "relu",
     "relu_",
+    "neg",
+    "abs",
+    "exp",
+    "log",
+    "sqrt",
+    "sigmoid",
+    "tanh",
     "add",
+    "sub",
+    "mul",
+    "div",
     "matmul",
     "cuda_available",
     "get_default_device",
