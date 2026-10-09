@@ -35,16 +35,25 @@ from .core.config import (
 from .core.cuda_graph import CUDAGraph, cuda_graph
 from .core.ops import (
     abs,
+    ceil,
+    cos,
     exp,
+    floor,
     log,
     neg,
+    reciprocal,
     relu,
     relu_,
+    round,
+    rsqrt,
     sigmoid,
+    sign,
+    sin,
     sqrt,
+    square,
     tanh,
 )
-from .core.operators import add, div, matmul, mul, sub
+from .core.operators import add, div, matmul, maximum, minimum, mul, pow, sub
 
 __version__ = "0.2.0"
 __author__ = "ByteRainLab"
@@ -64,10 +73,22 @@ __all__ = [
     "sqrt",
     "sigmoid",
     "tanh",
+    "sin",
+    "cos",
+    "rsqrt",
+    "square",
+    "reciprocal",
+    "sign",
+    "floor",
+    "ceil",
+    "round",
     "add",
     "sub",
     "mul",
     "div",
+    "pow",
+    "maximum",
+    "minimum",
     "matmul",
     "cuda_available",
     "get_default_device",

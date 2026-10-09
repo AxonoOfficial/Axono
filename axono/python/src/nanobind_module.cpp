@@ -103,6 +103,9 @@ EwBinaryFn EwBinCpu(const char *name) {
   if (n == "sub") return &ops::cpu::Sub;
   if (n == "mul") return &ops::cpu::Mul;
   if (n == "div") return &ops::cpu::Div;
+  if (n == "pow") return &ops::cpu::Pow;
+  if (n == "maximum") return &ops::cpu::Maximum;
+  if (n == "minimum") return &ops::cpu::Minimum;
   return nullptr;
 }
 
@@ -115,6 +118,15 @@ EwUnaryFn EwUnaryCpu(const char *name) {
   if (n == "sqrt") return &ops::cpu::Sqrt;
   if (n == "sigmoid") return &ops::cpu::Sigmoid;
   if (n == "tanh") return &ops::cpu::Tanh;
+  if (n == "sin") return &ops::cpu::Sin;
+  if (n == "cos") return &ops::cpu::Cos;
+  if (n == "rsqrt") return &ops::cpu::Rsqrt;
+  if (n == "square") return &ops::cpu::Square;
+  if (n == "reciprocal") return &ops::cpu::Reciprocal;
+  if (n == "sign") return &ops::cpu::Sign;
+  if (n == "floor") return &ops::cpu::Floor;
+  if (n == "ceil") return &ops::cpu::Ceil;
+  if (n == "round") return &ops::cpu::Round;
   return nullptr;
 }
 
@@ -124,6 +136,9 @@ EwBinaryFn EwBinCuda(const char *name) {
   if (n == "sub") return &ops::cuda::Sub;
   if (n == "mul") return &ops::cuda::Mul;
   if (n == "div") return &ops::cuda::Div;
+  if (n == "pow") return &ops::cuda::Pow;
+  if (n == "maximum") return &ops::cuda::Maximum;
+  if (n == "minimum") return &ops::cuda::Minimum;
   return nullptr;
 }
 
@@ -136,6 +151,15 @@ EwUnaryFn EwUnaryCuda(const char *name) {
   if (n == "sqrt") return &ops::cuda::Sqrt;
   if (n == "sigmoid") return &ops::cuda::Sigmoid;
   if (n == "tanh") return &ops::cuda::Tanh;
+  if (n == "sin") return &ops::cuda::Sin;
+  if (n == "cos") return &ops::cuda::Cos;
+  if (n == "rsqrt") return &ops::cuda::Rsqrt;
+  if (n == "square") return &ops::cuda::Square;
+  if (n == "reciprocal") return &ops::cuda::Reciprocal;
+  if (n == "sign") return &ops::cuda::Sign;
+  if (n == "floor") return &ops::cuda::Floor;
+  if (n == "ceil") return &ops::cuda::Ceil;
+  if (n == "round") return &ops::cuda::Round;
   return nullptr;
 }
 #endif
@@ -548,8 +572,38 @@ NB_MODULE(libaxono, m) {
   m.def("sigmoid", [&](const core::Tensor &x) {
          return ew_unary(x, "sigmoid");
        }, nb::arg("x"));
-  m.def("tanh", [&](const core::Tensor &x) { return ew_unary(x, "tanh"); },
+  m.def("tanh", [&](const core::Tensor &x) {
+         return ew_unary(x, "tanh");
+       }, nb::arg("x"));
+  m.def("sin", [&](const core::Tensor &x) { return ew_unary(x, "sin"); },
        nb::arg("x"));
+  m.def("cos", [&](const core::Tensor &x) { return ew_unary(x, "cos"); },
+       nb::arg("x"));
+  m.def("rsqrt", [&](const core::Tensor &x) { return ew_unary(x, "rsqrt"); },
+       nb::arg("x"));
+  m.def("square", [&](const core::Tensor &x) {
+         return ew_unary(x, "square");
+       }, nb::arg("x"));
+  m.def("reciprocal", [&](const core::Tensor &x) {
+         return ew_unary(x, "reciprocal");
+       }, nb::arg("x"));
+  m.def("sign", [&](const core::Tensor &x) { return ew_unary(x, "sign"); },
+       nb::arg("x"));
+  m.def("floor", [&](const core::Tensor &x) { return ew_unary(x, "floor"); },
+       nb::arg("x"));
+  m.def("ceil", [&](const core::Tensor &x) { return ew_unary(x, "ceil"); },
+       nb::arg("x"));
+  m.def("round", [&](const core::Tensor &x) { return ew_unary(x, "round"); },
+       nb::arg("x"));
+  m.def("pow", [&](const core::Tensor &a, const core::Tensor &b) {
+         return ew_binary(a, b, "pow");
+       }, nb::arg("a"), nb::arg("b"));
+  m.def("maximum", [&](const core::Tensor &a, const core::Tensor &b) {
+         return ew_binary(a, b, "maximum");
+       }, nb::arg("a"), nb::arg("b"));
+  m.def("minimum", [&](const core::Tensor &a, const core::Tensor &b) {
+         return ew_binary(a, b, "minimum");
+       }, nb::arg("a"), nb::arg("b"));
 
   // ---- 信息 ----
   m.def("cuda_available", []() {

@@ -76,6 +76,78 @@ struct TanhOp {
     return tanh(v);
   }
 };
+struct SinOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return sin(v);
+  }
+};
+struct CosOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return cos(v);
+  }
+};
+struct RsqrtOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return T(1) / sqrt(v);
+  }
+};
+struct SquareOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return v * v;
+  }
+};
+struct ReciprocalOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return T(1) / v;
+  }
+};
+struct SignOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return v > T(0) ? T(1) : (v < T(0) ? T(-1) : T(0));
+  }
+};
+struct FloorOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return floor(v);
+  }
+};
+struct CeilOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return ceil(v);
+  }
+};
+struct RoundOp {
+  template <typename T>
+  __device__ T operator()(T v) const {
+    return round(v);
+  }
+};
+struct PowOp {
+  template <typename T>
+  __device__ T operator()(T a, T b) const {
+    return pow(a, b);
+  }
+};
+struct MaximumOp {
+  template <typename T>
+  __device__ T operator()(T a, T b) const {
+    return a > b ? a : b;
+  }
+};
+struct MinimumOp {
+  template <typename T>
+  __device__ T operator()(T a, T b) const {
+    return a < b ? a : b;
+  }
+};
 
 // ---------- 全局 kernel 模板 ----------
 template <typename T, typename Op>
@@ -276,6 +348,102 @@ core::Status Tanh(const core::Context &ctx, const core::Tensor &x,
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
   return UnaryDispatchF(x, result, TanhOp{});
+}
+
+core::Status Sin(const core::Context &ctx, const core::Tensor &x,
+           core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, SinOp{});
+}
+
+core::Status Cos(const core::Context &ctx, const core::Tensor &x,
+           core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, CosOp{});
+}
+
+core::Status Rsqrt(const core::Context &ctx, const core::Tensor &x,
+             core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, RsqrtOp{});
+}
+
+core::Status Square(const core::Context &ctx, const core::Tensor &x,
+              core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, SquareOp{});
+}
+
+core::Status Reciprocal(const core::Context &ctx, const core::Tensor &x,
+                  core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, ReciprocalOp{});
+}
+
+core::Status Sign(const core::Context &ctx, const core::Tensor &x,
+            core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, SignOp{});
+}
+
+core::Status Floor(const core::Context &ctx, const core::Tensor &x,
+             core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, FloorOp{});
+}
+
+core::Status Ceil(const core::Context &ctx, const core::Tensor &x,
+            core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, CeilOp{});
+}
+
+core::Status Round(const core::Context &ctx, const core::Tensor &x,
+             core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatchF(x, result, RoundOp{});
+}
+
+core::Status Pow(const core::Context &ctx, const core::Tensor &a,
+           const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+  core::Status st = BinaryOpCheck(a, b, result);
+  if (st != core::Status::OK) return st;
+  return BinaryDispatch(a, b, result, PowOp{});
+}
+
+core::Status Maximum(const core::Context &ctx, const core::Tensor &a,
+               const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+  core::Status st = BinaryOpCheck(a, b, result);
+  if (st != core::Status::OK) return st;
+  return BinaryDispatch(a, b, result, MaximumOp{});
+}
+
+core::Status Minimum(const core::Context &ctx, const core::Tensor &a,
+               const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+  core::Status st = BinaryOpCheck(a, b, result);
+  if (st != core::Status::OK) return st;
+  return BinaryDispatch(a, b, result, MinimumOp{});
 }
 
 }  // namespace cuda

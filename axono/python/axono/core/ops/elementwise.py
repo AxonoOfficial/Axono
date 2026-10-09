@@ -54,4 +54,66 @@ def tanh(x):
     return _l.tanh(x)
 
 
-__all__ = ["neg", "abs", "exp", "log", "sqrt", "sigmoid", "tanh"]
+def sin(x):
+    """逐元素正弦"""
+    return _l.sin(x)
+
+
+def cos(x):
+    """逐元素余弦"""
+    return _l.cos(x)
+
+
+def rsqrt(x):
+    """逐元素平方根倒数 1/sqrt(x)"""
+    return _l.rsqrt(x)
+
+
+def square(x):
+    """逐元素平方 x*x"""
+    return _l.square(x)
+
+
+def reciprocal(x):
+    """逐元素倒数 1/x"""
+    return _l.reciprocal(x)
+
+
+def sign(x):
+    """逐元素符号 (-1/0/1)"""
+    return _l.sign(x)
+
+
+def floor(x):
+    """逐元素向下取整"""
+    return _l.floor(x)
+
+
+def ceil(x):
+    """逐元素向上取整"""
+    return _l.ceil(x)
+
+
+def round(x):  # noqa: A001 — 与内置 round 同名, 模块内导出
+    """逐元素四舍五入 (half away from zero, 与 torch.round 一致)"""
+    return _l.round(x)
+
+
+__all__ = [
+    "neg",
+    "abs",
+    "exp",
+    "log",
+    "sqrt",
+    "sigmoid",
+    "tanh",
+    "sin",
+    "cos",
+    "rsqrt",
+    "square",
+    "reciprocal",
+    "sign",
+    "floor",
+    "ceil",
+    "round",
+]

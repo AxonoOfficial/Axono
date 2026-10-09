@@ -31,6 +31,35 @@ AXONO_EXPORT core::Status Sigmoid(const core::Context &ctx,
                                   const core::Tensor &x, core::Tensor &result);
 AXONO_EXPORT core::Status Tanh(const core::Context &ctx, const core::Tensor &x,
                                core::Tensor &result);
+AXONO_EXPORT core::Status Sin(const core::Context &ctx, const core::Tensor &x,
+                              core::Tensor &result);
+AXONO_EXPORT core::Status Cos(const core::Context &ctx, const core::Tensor &x,
+                              core::Tensor &result);
+AXONO_EXPORT core::Status Rsqrt(const core::Context &ctx, const core::Tensor &x,
+                                core::Tensor &result);
+AXONO_EXPORT core::Status Square(const core::Context &ctx,
+                                 const core::Tensor &x, core::Tensor &result);
+AXONO_EXPORT core::Status Reciprocal(const core::Context &ctx,
+                                     const core::Tensor &x,
+                                     core::Tensor &result);
+AXONO_EXPORT core::Status Sign(const core::Context &ctx, const core::Tensor &x,
+                               core::Tensor &result);
+AXONO_EXPORT core::Status Floor(const core::Context &ctx, const core::Tensor &x,
+                                core::Tensor &result);
+AXONO_EXPORT core::Status Ceil(const core::Context &ctx, const core::Tensor &x,
+                               core::Tensor &result);
+AXONO_EXPORT core::Status Round(const core::Context &ctx, const core::Tensor &x,
+                                core::Tensor &result);
+
+// ---- 其它二元 ----
+AXONO_EXPORT core::Status Pow(const core::Context &ctx, const core::Tensor &a,
+                              const core::Tensor &b, core::Tensor &result);
+AXONO_EXPORT core::Status Maximum(const core::Context &ctx,
+                                  const core::Tensor &a, const core::Tensor &b,
+                                  core::Tensor &result);
+AXONO_EXPORT core::Status Minimum(const core::Context &ctx,
+                                  const core::Tensor &a, const core::Tensor &b,
+                                  core::Tensor &result);
 
 }  // namespace cuda
 }  // namespace ops

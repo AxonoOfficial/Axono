@@ -32,8 +32,8 @@ def _binary(a, b, name, fn, out):  # noqa: ANN001
     _check(a, b, name)
     if out is not None:
         _check(out, a, name + ": out")
-        result = fn(a, b)          # 计算到新张量
-        out.copy_from(result)      # 拷入 out (设备间安全)
+        result = fn(a, b)  # 计算到新张量
+        out.copy_from(result)  # 拷入 out (设备间安全)
         return out
     return fn(a, b)
 
@@ -53,4 +53,19 @@ def div(a, b, out=None):  # noqa: ANN001
     return _binary(a, b, "div", _l.div, out)
 
 
-__all__ = ["sub", "mul", "div"]
+def pow(a, b, out=None):  # noqa: ANN001 — 与内置 pow 同名, 模块内导出
+    """逐元素幂 a ** b (同形)。"""
+    return _binary(a, b, "pow", _l.pow, out)
+
+
+def maximum(a, b, out=None):  # noqa: ANN001
+    """逐元素最大值 max(a, b) (同形)。"""
+    return _binary(a, b, "maximum", _l.maximum, out)
+
+
+def minimum(a, b, out=None):  # noqa: ANN001
+    """逐元素最小值 min(a, b) (同形)。"""
+    return _binary(a, b, "minimum", _l.minimum, out)
+
+
+__all__ = ["sub", "mul", "div", "pow", "maximum", "minimum"]

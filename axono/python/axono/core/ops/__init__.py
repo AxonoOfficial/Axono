@@ -10,7 +10,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .elementwise import abs, exp, log, neg, sigmoid, sqrt, tanh
+from .elementwise import (
+    abs,
+    ceil,
+    cos,
+    exp,
+    floor,
+    log,
+    neg,
+    reciprocal,
+    round,
+    rsqrt,
+    sigmoid,
+    sign,
+    sin,
+    sqrt,
+    square,
+    tanh,
+)
 from .relu import relu, relu_
 
 __all__ = [
@@ -23,4 +40,13 @@ __all__ = [
     "sqrt",
     "sigmoid",
     "tanh",
+    "sin",
+    "cos",
+    "rsqrt",
+    "square",
+    "reciprocal",
+    "sign",
+    "floor",
+    "ceil",
+    "round",
 ]

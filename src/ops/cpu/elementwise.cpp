@@ -60,6 +60,24 @@ struct OpDiv {
     return a / b;
   }
 };
+struct OpPow {
+  template <typename T>
+  T operator()(T a, T b) const {
+    return std::pow(a, b);
+  }
+};
+struct OpMaximum {
+  template <typename T>
+  T operator()(T a, T b) const {
+    return a > b ? a : b;
+  }
+};
+struct OpMinimum {
+  template <typename T>
+  T operator()(T a, T b) const {
+    return a < b ? a : b;
+  }
+};
 
 // ---------- 一元 kernel (仅浮点) ----------
 template <typename T, typename F>
@@ -222,6 +240,138 @@ core::Status Tanh(const core::Context &ctx, const core::Tensor &x,
   return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
     UnaryKernel(px, po, n, [](auto v) { return std::tanh(v); });
   });
+}
+
+core::Status Sin(const core::Context &ctx, const core::Tensor &x,
+           core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) { return std::sin(v); });
+  });
+}
+
+core::Status Cos(const core::Context &ctx, const core::Tensor &x,
+           core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) { return std::cos(v); });
+  });
+}
+
+core::Status Rsqrt(const core::Context &ctx, const core::Tensor &x,
+             core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) {
+      using V = decltype(v);
+      return V(1) / std::sqrt(v);
+    });
+  });
+}
+
+core::Status Square(const core::Context &ctx, const core::Tensor &x,
+              core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) { return v * v; });
+  });
+}
+
+core::Status Reciprocal(const core::Context &ctx, const core::Tensor &x,
+                  core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) {
+      using V = decltype(v);
+      return V(1) / v;
+    });
+  });
+}
+
+core::Status Sign(const core::Context &ctx, const core::Tensor &x,
+            core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) {
+      using V = decltype(v);
+      return v > V(0) ? V(1) : (v < V(0) ? V(-1) : V(0));
+    });
+  });
+}
+
+core::Status Floor(const core::Context &ctx, const core::Tensor &x,
+             core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) { return std::floor(v); });
+  });
+}
+
+core::Status Ceil(const core::Context &ctx, const core::Tensor &x,
+            core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) { return std::ceil(v); });
+  });
+}
+
+core::Status Round(const core::Context &ctx, const core::Tensor &x,
+             core::Tensor &result) {
+  (void)ctx;
+  core::Status st = UnaryOpCheck(x, result);
+  if (st != core::Status::OK) return st;
+  return UnaryDispatch(x, result, [](const auto *px, auto *po, size_t n) {
+    UnaryKernel(px, po, n, [](auto v) { return std::round(v); });
+  });
+}
+
+core::Status Pow(const core::Context &ctx, const core::Tensor &a,
+           const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+  core::Status st = BinaryOpCheck(a, b, result);
+  if (st != core::Status::OK) return st;
+  return BinaryDispatch(a, b, result,
+                        [](const auto *pa, const auto *pb, auto *po, size_t n) {
+                          BinaryKernel(pa, pb, po, n, OpPow{});
+                        });
+}
+
+core::Status Maximum(const core::Context &ctx, const core::Tensor &a,
+               const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+  core::Status st = BinaryOpCheck(a, b, result);
+  if (st != core::Status::OK) return st;
+  return BinaryDispatch(a, b, result,
+                        [](const auto *pa, const auto *pb, auto *po, size_t n) {
+                          BinaryKernel(pa, pb, po, n, OpMaximum{});
+                        });
+}
+
+core::Status Minimum(const core::Context &ctx, const core::Tensor &a,
+               const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+  core::Status st = BinaryOpCheck(a, b, result);
+  if (st != core::Status::OK) return st;
+  return BinaryDispatch(a, b, result,
+                        [](const auto *pa, const auto *pb, auto *po, size_t n) {
+                          BinaryKernel(pa, pb, po, n, OpMinimum{});
+                        });
 }
 
 }  // namespace cpu

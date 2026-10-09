@@ -42,7 +42,9 @@ def _check(name: str, got: axono.Tensor, ref: np.ndarray, results: list) -> None
     ae, re_ = _max_err(g, r)
     ok = np.allclose(g, r, rtol=RTOL, atol=ATOL)
     results.append((name, ok, ae, re_))
-    print(f"  {'PASS' if ok else 'FAIL'}  {name:32s} max_abs={ae:.3e}  max_rel={re_:.3e}")
+    print(
+        f"  {'PASS' if ok else 'FAIL'}  {name:32s} max_abs={ae:.3e}  max_rel={re_:.3e}"
+    )
 
 
 def main() -> int:
@@ -96,18 +98,28 @@ def main() -> int:
         _check("sigmoid", axono.sigmoid(ta), ref(torch.sigmoid(tha)), results)
         _check("tanh", axono.tanh(ta), ref(torch.tanh(tha)), results)
         _check("relu", axono.relu(ta), ref(torch.relu(tha)), results)
+        _check("sin", axono.sin(ta), ref(torch.sin(tha)), results)
+        _check("cos", axono.cos(ta), ref(torch.cos(tha)), results)
+        _check("rsqrt", axono.rsqrt(tbp), ref(torch.rsqrt(thbp)), results)
+        _check("square", axono.square(ta), ref(tha * tha), results)
+        _check("reciprocal", axono.reciprocal(tbp), ref(1.0 / thbp), results)
+        _check("sign", axono.sign(ta), ref(torch.sign(tha)), results)
+        _check("floor", axono.floor(ta), ref(torch.floor(tha)), results)
+        _check("ceil", axono.ceil(ta), ref(torch.ceil(tha)), results)
+        _check("round", axono.round(ta), ref(torch.round(tha)), results)
+        _check("pow", axono.pow(tbp, ta), ref(torch.pow(thbp, tha)), results)
+        _check("maximum", axono.maximum(ta, tb), ref(torch.maximum(tha, thb)), results)
+        _check("minimum", axono.minimum(ta, tb), ref(torch.minimum(tha, thb)), results)
 
         # CUDA Graph 回放精度: 同一计算, eager vs replay
         if device == "cuda":
             print("  -- CUDA Graph 回放精度 --")
-            m1 = axono.matmul(ta, tb)
             with axono.cuda_graph() as g:
                 y = axono.relu(axono.matmul(ta, tb))
                 g.output = y
             g.replay()
             g.sync()
-            _check("graph: relu(matmul)", g.output,
-                   ref(torch.relu(tha @ thb)), results)
+            _check("graph: relu(matmul)", g.output, ref(torch.relu(tha @ thb)), results)
 
     axono.set_backend("cpu")
     n_pass = sum(1 for r in results if r[1])
