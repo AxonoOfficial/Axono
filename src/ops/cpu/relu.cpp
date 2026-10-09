@@ -10,10 +10,20 @@ namespace cpu {
 
 template <typename T>
 void ReluKernel(const T *input, T *output, size_t n) {
+  if (n < 16384) {
+    for (size_t i = 0; i < n; ++i) output[i] = std::max(T(0), input[i]);
+    return;
+  }
+#pragma omp parallel for schedule(static)
   for (size_t i = 0; i < n; ++i) output[i] = std::max(T(0), input[i]);
 }
 template <typename T>
 void ReluInplaceKernel(T *data, size_t n) {
+  if (n < 16384) {
+    for (size_t i = 0; i < n; ++i) data[i] = std::max(T(0), data[i]);
+    return;
+  }
+#pragma omp parallel for schedule(static)
   for (size_t i = 0; i < n; ++i) data[i] = std::max(T(0), data[i]);
 }
 
