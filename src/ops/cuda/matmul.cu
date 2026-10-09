@@ -24,10 +24,8 @@ namespace axono {
 namespace ops {
 namespace cuda {
 
-namespace {
-
 // -----------------------------------------------------------------------
-// cuBLAS 句柄管理 (线程安全懒加载)
+// cuBLAS 句柄管理 (线程安全懒加载); linear.cu 复用, 链接可见。
 // -----------------------------------------------------------------------
 cublasHandle_t GetCublasHandle() {
   static cublasHandle_t handle = nullptr;
@@ -38,6 +36,10 @@ cublasHandle_t GetCublasHandle() {
   }
   return handle;
 }
+
+namespace {
+
+// CublasStatusString 仅本文件使用
 
 const char *CublasStatusString(cublasStatus_t s) {
   switch (s) {

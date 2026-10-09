@@ -1,0 +1,220 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Qwen3-VL-2B 文本前向 (纯 Axono 算子): 加载 safetensors 权重,
+跑 prefill + greedy 解码, 对比 transformers 参考 logits。
+
+用法: PYTHONPATH=. python examples/qwen3vl_text_forward.py \
+        --model /root/autodl-tmp/qwen3vl-2b --device cuda
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+
+import numpy as np
+
+import axono
+
+PROMPT = "中国的首都是哪里？"
+
+
+def load_weights(path: str, device: str) -> dict:
+    """safetensors (bf16) -> fp32 axono Tensor dict"""
+    from safetensors.torch import load_file
+
+    raw = load_file(path)
+    w = {}
+    for k, v in raw.items():
+        arr = v.float().cpu().numpy()
+        t = axono.Tensor.from_numpy(np.ascontiguousarray(arr))
+        w[k] = t.to(device) if device != "cpu" else t
+    return w
+
+
+def tokenizer_encode(text: str) -> list:
+    """占位: 优先使用 tokenizers 库 (见 main)。"""
+    raise NotImplementedError
+
+
+def qwen3_text_forward(w: dict, ids: list, device: str, cfg: dict) -> np.ndarray:
+    """Qwen3 文本主干前向, 返回最后位置 hidden state 投影后的 logits。
+    结构: embed -> [rmsnorm -> qkv(+q/k norm) -> rope -> GQA attention ->
+    o_proj + 残差 -> rmsnorm -> SwiGLU mlp + 残差] x 28 -> final rmsnorm ->
+    logits = hidden @ embed_tokens^T (tied)
+    """
+    t = cfg.get("text_config", cfg)
+    n_head = t["num_attention_heads"]
+    n_kv = t["num_key_value_heads"]
+    d_head = t["head_dim"]
+    layers = t["num_hidden_layers"]
+    eps = t["rms_norm_eps"]
+    theta = float(t["rope_theta"])
+
+    seq = len(ids)
+    ids_t = _ids(ids, device)
+    h = axono.embedding(ids_t, w["model.language_model.embed_tokens.weight"])
+    pos = _arange(seq, device)
+
+    for li in range(layers):
+        p = f"model.language_model.layers.{li}"
+        # --- attention ---
+        x = axono.rms_norm(h, w[f"{p}.input_layernorm.weight"], eps)
+        q = _reshape3(
+            axono.linear_nobias(x, w[f"{p}.self_attn.q_proj.weight"]),
+            seq,
+            n_head,
+            d_head,
+            device,
+        )
+        k = _reshape3(
+            axono.linear_nobias(x, w[f"{p}.self_attn.k_proj.weight"]),
+            seq,
+            n_kv,
+            d_head,
+            device,
+        )
+        v = _reshape3(
+            axono.linear_nobias(x, w[f"{p}.self_attn.v_proj.weight"]),
+            seq,
+            n_kv,
+            d_head,
+            device,
+        )
+        # Qwen3: q/k norm (head_dim 上 RMSNorm) 在 RoPE 之前
+        q = _head_norm(
+            q, w[f"{p}.self_attn.q_norm.weight"], eps, seq, n_head, d_head, device
+        )
+        k = _head_norm(
+            k, w[f"{p}.self_attn.k_norm.weight"], eps, seq, n_kv, d_head, device
+        )
+        q = axono.rope(q, pos, theta)
+        k = axono.rope(k, pos, theta)
+        attn = axono.scaled_dot_product_attention(q, k, v, True)
+        attn = _reshape2(attn, seq, n_head * d_head, device)
+        attn_out = axono.linear_nobias(attn, w[f"{p}.self_attn.o_proj.weight"])
+        h = axono.add(h, attn_out)
+        # --- mlp (SwiGLU) ---
+        x = axono.rms_norm(h, w[f"{p}.post_attention_layernorm.weight"], eps)
+        gate = axono.linear_nobias(x, w[f"{p}.mlp.gate_proj.weight"])
+        up = axono.linear_nobias(x, w[f"{p}.mlp.up_proj.weight"])
+        mlp = axono.linear_nobias(
+            axono.mul(axono.silu(gate), up), w[f"{p}.mlp.down_proj.weight"]
+        )
+        h = axono.add(h, mlp)
+
+    h = axono.rms_norm(h, w["model.language_model.norm.weight"], eps)
+    # tied embedding: logits = h @ E^T — 用 linear (E 作为 weight)
+    logits = axono.linear_nobias(h, w["model.language_model.embed_tokens.weight"])
+    return logits.to("cpu").to_numpy()
+
+
+def _ids(arr, device):
+    arr = np.asarray(arr, dtype=np.int64)
+    t = axono.Tensor.zeros(tuple(arr.shape), dtype=axono.DataType.INT64, device=device)
+    t.copy_from_numpy(arr)
+    return t
+
+
+def _arange(seq, device):
+    return _ids(np.arange(seq), device)
+
+
+def _reshape3(t, seq, heads, d_head, device):
+    return t.reshape((seq, heads, d_head))
+
+
+def _reshape2(t, seq, dim, device):
+    return t.reshape((seq, dim))
+
+
+def _head_norm(t3, weight, eps, seq, heads, d_head, device):
+    """对 (seq, heads, d_head) 的最后一维做 rmsnorm (weight: d_head)"""
+    arr = t3.reshape((-1, d_head)).to_numpy()
+    wt = weight.to_numpy()
+    normed = arr / np.sqrt((arr**2).mean(-1, keepdims=True) + eps) * wt
+    return axono.Tensor.from_numpy(
+        np.ascontiguousarray(normed.reshape(seq, heads, d_head))
+    )
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default="/root/autodl-tmp/qwen3vl-2b")
+    ap.add_argument("--device", default="cuda")
+    args = ap.parse_args()
+
+    if args.device == "cuda":
+        if not axono.cuda_available():
+            print("无 CUDA, 回退 CPU")
+            args.device = "cpu"
+    axono.set_backend(args.device)
+
+    print("加载权重 (bf16 -> fp32)...")
+    cfg = json.load(open(os.path.join(args.model, "config.json")))
+    w = load_weights(os.path.join(args.model, "model.safetensors"), args.device)
+    print(f"  {len(w)} 个张量")
+
+    # 分词: 优先 tokenizers 库
+    try:
+        from tokenizers import Tokenizer
+
+        tok = Tokenizer.from_file(os.path.join(args.model, "tokenizer.json"))
+        ids = tok.encode(PROMPT).ids
+        print("tokenizers 编码:", ids)
+    except ImportError:
+        print("tokenizers 库不可用, 请 pip install tokenizers")
+        return 1
+
+    print(f"前向 ({args.device})...")
+    logits = qwen3_text_forward(w, ids, args.device, cfg)
+    last = logits[-1]
+    top5 = np.argsort(-last)[:5]
+    print("Top-5 token ids:", top5.tolist())
+
+    # 与 torch 参考对比
+    try:
+        import torch
+        from safetensors.torch import load_file
+
+        tw = load_file(os.path.join(args.model, "model.safetensors"))
+        tw = {k: v.float() for k, v in tw.items()}
+        td = "cuda" if torch.cuda.is_available() else "cpu"
+        tw = {k: v.to(td) for k, v in tw.items()}
+        tid = torch.tensor([ids], device=td)
+        with torch.no_grad():
+            from transformers.models.qwen3_vl import (
+                Qwen3VLForConditionalGeneration,
+            )
+
+            model = (
+                Qwen3VLForConditionalGeneration.from_pretrained(
+                    args.model, torch_dtype=torch.float32
+                )
+                .to(td)
+                .eval()
+            )
+            ref = model(input_ids=tid).logits[0, -1].float().cpu().numpy()
+        err = np.abs(last - ref).max()
+        print(f"vs transformers 最后位置 logits max_abs_err = {err:.4e}")
+        ok = err < 0.5
+        print("PASS" if ok else "FAIL")
+        return 0 if ok else 1
+    except ImportError as e:
+        print(f"transformers 不可用 ({e}), 仅输出 top-5")
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
