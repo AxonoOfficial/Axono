@@ -11,6 +11,12 @@ namespace cpu {
 template <typename T>
 AXONO_FORCE_INLINE void AddBroadcastKernel(const T *a, const T *b, T *out,
                                            size_t M, size_t K) {
+  if (M * K < 16384) {
+    for (size_t m = 0; m < M; ++m)
+      for (size_t k = 0; k < K; ++k) out[m * K + k] = a[m * K + k] + b[k];
+    return;
+  }
+#pragma omp parallel for collapse(2) schedule(static)
   for (size_t m = 0; m < M; ++m) {
     for (size_t k = 0; k < K; ++k) {
       out[m * K + k] = a[m * K + k] + b[k];
@@ -21,6 +27,12 @@ AXONO_FORCE_INLINE void AddBroadcastKernel(const T *a, const T *b, T *out,
 template <typename T>
 AXONO_FORCE_INLINE void AddKernel(const T *a, const T *b, T *result,
                                   size_t num_elements) {
+  // 小规模直接算, 避免线程开销; 大规模 OpenMP 并行
+  if (num_elements < 16384) {
+    for (size_t i = 0; i < num_elements; ++i) result[i] = a[i] + b[i];
+    return;
+  }
+#pragma omp parallel for schedule(static)
   for (size_t i = 0; i < num_elements; ++i) {
     result[i] = a[i] + b[i];
   }

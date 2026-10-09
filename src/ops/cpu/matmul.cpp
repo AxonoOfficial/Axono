@@ -8,6 +8,10 @@
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 
+#ifdef AXONO_WITH_BLAS
+#include <cblas.h>
+#endif
+
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || \
     defined(_M_X64)
 #define AXONO_USE_X86_INTRINSICS 1
@@ -359,11 +363,28 @@ void MatMulParallelOptimized(const T *a, const T *b, T *result, size_t m,
   }
 }
 
-// 主内核函数 - 根据情况选择最优实现
+// BLAS 加速: float/double 走 cblas (行主序, CblasNoTrans), 整型走自写内核。
+// BLAS 不可用时全部回退自写内核。
 template <typename T>
 void MatMulOptimizedKernel(const T *a, const T *b, T *result, size_t m,
                            size_t n, size_t k) {
-  // 根据矩阵大小选择不同策略
+#ifdef AXONO_WITH_BLAS
+  if constexpr (std::is_same_v<T, float>) {
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                static_cast<int>(m), static_cast<int>(n), static_cast<int>(k),
+                1.0f, a, static_cast<int>(k), b, static_cast<int>(n),
+                0.0f, result, static_cast<int>(n));
+    return;
+  }
+  if constexpr (std::is_same_v<T, double>) {
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                static_cast<int>(m), static_cast<int>(n), static_cast<int>(k),
+                1.0, a, static_cast<int>(k), b, static_cast<int>(n),
+                0.0, result, static_cast<int>(n));
+    return;
+  }
+#endif
+  // 根据矩阵大小选择不同策略 (回退路径)
   if (m * n * k > 2000000) {  // 大矩阵用多线程
     MatMulParallelOptimized(a, b, result, m, n, k);
   } else {  // 中小矩阵用 SIMD 优化的单线程版本

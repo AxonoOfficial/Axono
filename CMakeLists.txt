@@ -44,6 +44,16 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_link_options(-fPIC)
 endif()
 
+# OpenMP: CPU elementwise/matmul 内核并行
+find_package(OpenMP QUIET)
+if(OpenMP_CXX_FOUND)
+    add_compile_options(${OpenMP_CXX_FLAGS})
+    add_link_options(${OpenMP_CXX_FLAGS})
+    message(STATUS "Axono: OpenMP enabled -> ${OpenMP_CXX_FLAGS}")
+else()
+    message(STATUS "Axono: OpenMP not found, CPU kernels run single-threaded")
+endif()
+
 # x86 架构检测 (AVX2 优化)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|i386|i686|AMD64|amd64")
     message(STATUS "Detected x86 architecture, enabling AVX optimizations")

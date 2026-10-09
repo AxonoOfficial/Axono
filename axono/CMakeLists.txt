@@ -42,5 +42,27 @@ if(WITH_CUDA)
       POSITION_INDEPENDENT_CODE ON)
 endif()
 
+# CPU BLAS 加速 (OpenBLAS 优先): 找到则定义 AXONO_WITH_BLAS,
+# CPU matmul float/double 走 cblas_sgemm/cblas_dgemm, 自写 kernel 作回退。
+set(AXONO_BLAS_IMPL "none")
+find_package(BLAS QUIET)
+if(BLAS_FOUND)
+  target_link_libraries(libaxono PRIVATE ${BLAS_LIBRARIES})
+  target_compile_definitions(libaxono PRIVATE AXONO_WITH_BLAS)
+  set(AXONO_BLAS_IMPL "generic-BLAS")
+  message(STATUS "Axono: BLAS found -> ${BLAS_LIBRARIES}")
+else()
+  message(STATUS "Axono: BLAS not found, using built-in CPU kernels")
+endif()
+# OpenBLAS 专属: 多线程与更优内核 (cblas 接口)
+find_library(OPENBLAS_LIB NAMES openblas HINTS ${BLAS_LIB_DIR})
+if(OPENBLAS_LIB)
+  target_link_libraries(libaxono PRIVATE ${OPENBLAS_LIB})
+  target_compile_definitions(libaxono PRIVATE AXONO_WITH_OPENBLAS)
+  set(AXONO_BLAS_IMPL "OpenBLAS")
+  message(STATUS "Axono: OpenBLAS -> ${OPENBLAS_LIB}")
+endif()
+showInfo("Axono CPU BLAS: ${AXONO_BLAS_IMPL}")
+
 # 安装到 python 包内
 install(TARGETS libaxono LIBRARY DESTINATION axono)
