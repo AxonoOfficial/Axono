@@ -41,6 +41,32 @@ class TestAdd:
         with pytest.raises(Exception):
             add(a, b)
 
+    def test_add_inplace_switch(self, device):
+        a = Tensor.from_numpy(np.ones((3, 4), np.float32)).to(device)
+        b = Tensor.from_numpy(np.full((3, 4), 2.0, np.float32)).to(device)
+        # 开关关闭 (默认): 非原地, 输入不变
+        out = add(a, b)
+        assert out is not a
+        np.testing.assert_allclose(a.to_numpy(), np.ones((3, 4), np.float32))
+        # 开关打开: 真原地
+        axono.set_inplace_enabled(True)
+        try:
+            out = add(a, b)
+            assert out is a
+            np.testing.assert_allclose(a.to_numpy(), np.full((3, 4), 3.0, np.float32))
+        finally:
+            axono.set_inplace_enabled(False)
+
+    def test_add_out(self, device):
+        a = Tensor.from_numpy(np.ones((3, 4), np.float32)).to(device)
+        b = Tensor.from_numpy(np.full((3, 4), 2.0, np.float32)).to(device)
+        o = Tensor.zeros([3, 4], device=device)
+        r = add(a, b, out=o)
+        assert r is o
+        np.testing.assert_allclose(o.to_numpy(), np.full((3, 4), 3.0, np.float32))
+        # out= 优先于全局开关: 输入 a 不变
+        np.testing.assert_allclose(a.to_numpy(), np.ones((3, 4), np.float32))
+
 
 class TestMatMul:
     @pytest.mark.parametrize(
@@ -103,7 +129,28 @@ class TestRelu:
         arr = rng.standard_normal((4, 4)).astype(np.float32)
         t = Tensor.from_numpy(arr).to(device)
         out = relu(t, inplace=True)
+        assert out is t  # 真 inplace: 返回同一对象
         np.testing.assert_allclose(out.to_numpy(), np.maximum(arr, 0))
+
+    def test_relu_not_inplace_leaves_input(self, device, rng):
+        arr = rng.standard_normal((4, 4)).astype(np.float32)
+        t = Tensor.from_numpy(arr).to(device)
+        out = relu(t)
+        assert out is not t  # 非 inplace: 输入不变
+        np.testing.assert_allclose(t.to_numpy(), arr)
+
+    def test_relu_global_switch(self, device, rng):
+        arr = rng.standard_normal((4, 4)).astype(np.float32)
+        t = Tensor.from_numpy(arr).to(device)
+        old = axono.is_inplace_enabled()
+        try:
+            axono.set_inplace_enabled(True)
+            out = relu(t)  # 开关开 -> 真原地
+            assert out is t
+            assert axono.is_inplace_enabled()
+        finally:
+            axono.set_inplace_enabled(old)
+        assert not axono.is_inplace_enabled()  # 默认关闭
 
     def test_relu_zero(self, device):
         t = Tensor.zeros([5], device=device)

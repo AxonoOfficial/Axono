@@ -165,6 +165,21 @@ core::Status Add(const core::Context &ctx, const core::Tensor &a,
   return DispatchAdd(a, b, result);
 }
 
+core::Status AddInto(const core::Context &ctx, const core::Tensor &a,
+                     const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+  // 原地语义: result 与 a 可同一存储。要求三者在同一设备且 dtype 一致。
+  if (a.dtype() != b.dtype() || a.dtype() != result.dtype()) {
+    return core::Status::UNSUPPORTED_TYPE;
+  }
+  if (!result.IsSameShape(a) || !result.IsSameShape(b)) {
+    return core::Status::SHAPE_MISMATCH;
+  }
+  // DispatchAdd 的核函数按元素读 a、b 并写 result, 允许三指针重叠,
+  // 因此 result == a 时即为真正的原地累加 (result += b)。
+  return DispatchAdd(a, b, result);
+}
+
 core::Status AddScalar(const core::Context &ctx, const core::Tensor &a,
                        void *scalar, size_t scalar_size, core::Tensor &result) {
   (void)ctx;

@@ -45,7 +45,7 @@ class Module:
         if not isinstance(tensor, Tensor):
             raise TypeError(f"add_weight 需要 axono.Tensor, 得到 {type(tensor)}")
         self._parameters[name] = tensor
-        self._cpp_module.add_weight(name, tensor._tensor)
+        self._cpp_module.add_weight(name, tensor)
 
     def parameters(self) -> Dict[str, Tensor]:
         """返回 {名称: Tensor} 参数字典 (含子模块, 名字用点号连接)。"""

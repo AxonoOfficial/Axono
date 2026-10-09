@@ -86,7 +86,7 @@ class TestModule:
     def test_set_default_device(self):
         axono.set_default_device("cpu")
         assert axono.get_default_device() == "cpu"
-        t = axono.Tensor(shape=[2, 2])
+        t = axono.Tensor(axono.DataType.FLOAT32, [2, 2])
         assert t.device == "cpu"
 
     def test_repr(self):

@@ -50,3 +50,4 @@ class Linear(Module):
         if self._parameters["bias"] is not None:
             output = output + self._parameters["bias"]
         return output
+

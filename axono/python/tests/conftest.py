@@ -28,7 +28,7 @@ def _devices():
     devs = ["cpu"]
     if axono.cuda_available():
         try:
-            axono.Tensor(shape=[1], device="cuda:0")
+            axono.Tensor(axono.DataType.FLOAT32, [1], "cuda:0")
             devs.append("cuda:0")
         except Exception:  # pragma: no cover - 驱动/设备不可用
             pass
