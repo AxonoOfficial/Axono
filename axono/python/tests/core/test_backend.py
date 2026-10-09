@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 
 import axono
-from axono import DataType
 
 
 @pytest.fixture(autouse=True)
