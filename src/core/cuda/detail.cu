@@ -1,6 +1,9 @@
 // Axono/src/core/cuda/detail.cu
 #include <cuda_runtime.h>
 #include <stdexcept>
+#include "axono/core/cuda/capture.h"
+#include "axono/core/cuda/capture_pool.h"
+#include "axono/core/cuda/stream.h"
 #include "axono/core/tensor.h"
 
 namespace axono {
@@ -40,24 +43,76 @@ std::shared_ptr<void> CudaAllocateStorage(size_t bytes, const std::string& devic
     }
 
     // 分配CUDA内存
+    // 图捕获: 优先命中捕获缓存池 (绑定层 capture() 已在 warmup 阶段把
+    // 同尺寸块缓存于此)。命中则图内零 alloc 节点 —— 实测部分 CUDA 版本
+    // 上含 alloc 节点的图无法重复 launch (invalid argument), 预分配是
+    // 唯一稳妥方案。
+    // 非捕获: 普通 cudaMalloc; 登记模式 (warmup) 下额外登记进池。
     void* dev_ptr = nullptr;
+    const bool capturing = axono::core::cuda::IsCapturing();
+    cudaStream_t alloc_stream =
+        capturing ? axono::core::cuda::AxonoCurrentStream() : nullptr;
+    if (capturing) {
+        dev_ptr = axono::core::cuda::CapturePoolAcquire(bytes);
+        if (dev_ptr != nullptr) {
+            // 命中缓存: 直接复用 (无需清零 —— 回放后 kernel 覆盖全部元素)
+            return std::shared_ptr<void>(dev_ptr,
+                                         [](void*) { /* 池持有, 不释放 */ });
+        }
+        // 池未命中兜底: cudaMallocAsync 会成为图内 alloc 节点, 首次
+        // 回放可用, 但重复回放在部分 CUDA 版本上受限 —— 仅在 warmup
+        // 覆盖不全 (用户捕获体依赖运行时分支) 时才会走到这里。
+        err = cudaMallocAsync(&dev_ptr, bytes, alloc_stream);
+        if (err != cudaSuccess) throw std::bad_alloc();
+        err = cudaMemsetAsync(dev_ptr, 0, bytes, alloc_stream);
+        if (err != cudaSuccess) {
+            cudaFreeAsync(dev_ptr, alloc_stream);
+            throw std::runtime_error("CUDA memset failed: " +
+                                     std::string(cudaGetErrorString(err)));
+        }
+        return std::shared_ptr<void>(
+            dev_ptr, [alloc_stream](void* ptr) {
+              cudaFreeAsync(ptr, alloc_stream);
+            });
+    }
     err = cudaMalloc(&dev_ptr, bytes);
     if (err != cudaSuccess) {
         throw std::bad_alloc();
     }
 
-    // 初始化为0
-    err = cudaMemset(dev_ptr, 0, bytes);
+    // 初始化为0 (捕获中异步, 同样入图)
+    if (capturing) {
+        err = cudaMemsetAsync(dev_ptr, 0, bytes, alloc_stream);
+    } else {
+        err = cudaMemset(dev_ptr, 0, bytes);
+    }
     if (err != cudaSuccess) {
-        cudaFree(dev_ptr); // 清理已分配的内存
-        throw std::runtime_error("CUDA memset failed: " + 
+        if (capturing) {
+            cudaFreeAsync(dev_ptr, alloc_stream);
+        } else {
+            cudaFree(dev_ptr); // 清理已分配的内存
+        }
+        throw std::runtime_error("CUDA memset failed: " +
                                std::string(cudaGetErrorString(err)));
     }
 
-    // 返回带CUDA释放器的智能指针
-    return std::shared_ptr<void>(dev_ptr, [](void* ptr) {
-        cudaFree(ptr);
-    });
+    // 返回带CUDA释放器的智能指针 (按分配方式选择释放路径)
+    if (axono::core::cuda::CapturePoolRecording()) {
+      // 登记模式 (warmup): 池持引用, 分配的块供捕获复用
+      axono::core::cuda::CapturePoolRegister(bytes, dev_ptr);
+      return std::shared_ptr<void>(dev_ptr,
+                                   [](void*) { /* 池持有, 不释放 */ });
+    }
+    return std::shared_ptr<void>(dev_ptr,
+                                 [capturing, alloc_stream](void* ptr) {
+                                   if (capturing) {
+                                     // 捕获中: 延迟释放, 不入图 free 节点
+                                     axono::core::cuda::DeferredFreeAsync(
+                                         ptr, alloc_stream);
+                                   } else {
+                                     cudaFree(ptr);
+                                   }
+                                 });
 }
 /**
  * @brief 分配 CUDA 内存

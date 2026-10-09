@@ -2,6 +2,8 @@
 #include <cuda_runtime.h>
 #include <cstddef>
 
+#include "axono/core/cuda/stream.h"
+#include "axono/core/cuda/capture.h"
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
@@ -54,19 +56,19 @@ core::Status DispatchRelu(const core::Tensor& input, core::Tensor& output) {
 
   switch (input.dtype()) {
     case core::DataType::FLOAT32:
-      ReluKernel<float><<<grid, block>>>(input.data<float>(),
+      ReluKernel<float><<<grid, block, 0, axono::core::cuda::AxonoCurrentStream()>>>(input.data<float>(),
                                          output.data<float>(),
                                          num_el);
       err = cudaGetLastError();
       break;
     case core::DataType::FLOAT64:
-      ReluKernel<double><<<grid, block>>>(input.data<double>(),
+      ReluKernel<double><<<grid, block, 0, axono::core::cuda::AxonoCurrentStream()>>>(input.data<double>(),
                                           output.data<double>(),
                                           num_el);
       err = cudaGetLastError();
       break;
     case core::DataType::INT32:
-      ReluKernel<int32_t><<<grid, block>>>(input.data<int32_t>(),
+      ReluKernel<int32_t><<<grid, block, 0, axono::core::cuda::AxonoCurrentStream()>>>(input.data<int32_t>(),
                                            output.data<int32_t>(),
                                            num_el);
       err = cudaGetLastError();
@@ -76,7 +78,7 @@ core::Status DispatchRelu(const core::Tensor& input, core::Tensor& output) {
   }
   if (err != cudaSuccess) return core::Status::DEVICE_ERROR;
 
-  err = cudaDeviceSynchronize();
+  err = axono::core::cuda::IsCapturing() ? cudaSuccess : cudaDeviceSynchronize();
   return (err == cudaSuccess) ? core::Status::OK : core::Status::DEVICE_ERROR;
 }
 
@@ -93,15 +95,15 @@ core::Status DispatchReluInplace(core::Tensor& tensor) {
 
   switch (tensor.dtype()) {
     case core::DataType::FLOAT32:
-      ReluInplaceKernel<float><<<grid, block>>>(tensor.data<float>(), num_el);
+      ReluInplaceKernel<float><<<grid, block, 0, axono::core::cuda::AxonoCurrentStream()>>>(tensor.data<float>(), num_el);
       err = cudaGetLastError();
       break;
     case core::DataType::FLOAT64:
-      ReluInplaceKernel<double><<<grid, block>>>(tensor.data<double>(), num_el);
+      ReluInplaceKernel<double><<<grid, block, 0, axono::core::cuda::AxonoCurrentStream()>>>(tensor.data<double>(), num_el);
       err = cudaGetLastError();
       break;
     case core::DataType::INT32:
-      ReluInplaceKernel<int32_t><<<grid, block>>>(tensor.data<int32_t>(), num_el);
+      ReluInplaceKernel<int32_t><<<grid, block, 0, axono::core::cuda::AxonoCurrentStream()>>>(tensor.data<int32_t>(), num_el);
       err = cudaGetLastError();
       break;
     default:
@@ -109,7 +111,7 @@ core::Status DispatchReluInplace(core::Tensor& tensor) {
   }
   if (err != cudaSuccess) return core::Status::DEVICE_ERROR;
 
-  err = cudaDeviceSynchronize();
+  err = axono::core::cuda::IsCapturing() ? cudaSuccess : cudaDeviceSynchronize();
   return (err == cudaSuccess) ? core::Status::OK : core::Status::DEVICE_ERROR;
 }
 

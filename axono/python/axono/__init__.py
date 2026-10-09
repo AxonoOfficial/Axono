@@ -22,10 +22,17 @@ from .core import (
     operators,
     set_default_device,
 )
+from .core.backend import (
+    get_backend,
+    get_matmul_backend,
+    set_backend,
+    set_matmul_backend,
+)
 from .core.config import (
     is_inplace_enabled,
     set_inplace_enabled,
 )
+from .core.cuda_graph import CUDAGraph, cuda_graph
 from .core.ops import relu, relu_
 from .core.operators import add, matmul
 
@@ -47,6 +54,12 @@ __all__ = [
     "set_default_device",
     "set_inplace_enabled",
     "is_inplace_enabled",
+    "set_backend",
+    "get_backend",
+    "set_matmul_backend",
+    "get_matmul_backend",
+    "CUDAGraph",
+    "cuda_graph",
     "welcome",
 ]
 

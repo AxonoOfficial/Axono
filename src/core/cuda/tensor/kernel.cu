@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cstring>
 
+#include "axono/core/cuda/capture.h"
+#include "axono/core/cuda/stream.h"
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
@@ -48,7 +50,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     if (value_size >= sizeof(float)) {
       std::memcpy(&fill_value, value, sizeof(float));
     }
-    TensorFillKernel<float><<<launch_config, 256>>>(
+    TensorFillKernel<float><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         tensor.data<float>(), num_elements, fill_value);
 
     break;
@@ -58,7 +60,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     if (value_size >= sizeof(double)) {
       std::memcpy(&fill_value, value, sizeof(double));
     }
-    TensorFillKernel<double><<<launch_config, 256>>>(
+    TensorFillKernel<double><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         tensor.data<double>(), num_elements, fill_value);
 
     break;
@@ -68,7 +70,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     if (value_size >= sizeof(int16_t)) {
       std::memcpy(&fill_value, value, sizeof(int16_t));
     }
-    TensorFillKernel<int16_t><<<launch_config, 256>>>(
+    TensorFillKernel<int16_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         tensor.data<int16_t>(), num_elements, fill_value);
 
     break;
@@ -78,7 +80,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     if (value_size >= 1) {
       std::memcpy(&fill_value, value, 1);
     }
-    TensorFillKernel<bool><<<launch_config, 256>>>(
+    TensorFillKernel<bool><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         tensor.data<bool>(), num_elements, fill_value);
     break;
   }
@@ -87,7 +89,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     if (value_size >= sizeof(int8_t)) {
       std::memcpy(&fill_value, value, sizeof(int8_t));
     }
-    TensorFillKernel<int8_t><<<launch_config, 256>>>(
+    TensorFillKernel<int8_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         tensor.data<int8_t>(), num_elements, fill_value);
 
     break;
@@ -97,7 +99,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     if (value_size >= sizeof(int32_t)) {
       std::memcpy(&fill_value, value, sizeof(int32_t));
     }
-    TensorFillKernel<int32_t><<<launch_config, 256>>>(
+    TensorFillKernel<int32_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         tensor.data<int32_t>(), num_elements, fill_value);
     break;
   }
@@ -106,7 +108,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     if (value_size >= sizeof(int64_t)) {
       std::memcpy(&fill_value, value, sizeof(int64_t));
     }
-    TensorFillKernel<int64_t><<<launch_config, 256>>>(
+    TensorFillKernel<int64_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         tensor.data<int64_t>(), num_elements, fill_value);
     break;
   }
@@ -114,7 +116,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  cudaDeviceSynchronize();
+  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
   return core::Status::OK;
 }
 
@@ -127,22 +129,23 @@ core::Status DispatchZero(Tensor &tensor) {
 
   switch (dtype) {
   case DataType::FLOAT32:
-    TensorZeroKernel<float><<<launch_config, 256>>>(tensor.data<float>(), num_elements);
+    TensorZeroKernel<float><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(tensor.data<float>(), num_elements);
     break;
   case DataType::INT32:
-    TensorZeroKernel<int32_t><<<launch_config, 256>>>(tensor.data<int32_t>(), num_elements);
+    TensorZeroKernel<int32_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(tensor.data<int32_t>(), num_elements);
     break;
   default:
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  cudaDeviceSynchronize();
+  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
   return core::Status::OK;
 }
 
 // TensorCopyKernel 实现
 void TensorCopyKernel(void *dst, const void *src, size_t num_bytes) {
-    cudaMemcpy(dst, src, num_bytes, cudaMemcpyDeviceToDevice);
+    cudaMemcpyAsync(dst, src, num_bytes, cudaMemcpyDeviceToDevice,
+                    axono::core::cuda::AxonoCurrentStream());
 }
 
 template <typename T>
@@ -150,7 +153,9 @@ core::Status TensorReadKernel(const T* device_data, T* host_data, size_t num_ele
     if (!device_data || !host_data || num_elements == 0) {
         return core::Status::INVALID_ARGUMENT;
     }
-    cudaError_t err = cudaMemcpy(host_data, device_data, num_elements * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaError_t err = cudaMemcpy(host_data, device_data,
+                                 num_elements * sizeof(T),
+                                 cudaMemcpyDeviceToHost);  // 读取本身即同步
     return (err == cudaSuccess) ? core::Status::OK : core::Status::INTERNAL_ERROR;
 }
 

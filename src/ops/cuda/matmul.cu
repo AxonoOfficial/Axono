@@ -13,9 +13,12 @@
 #include <cstddef>
 #include <stdexcept>
 
+#include "axono/core/cuda/capture.h"
+#include "axono/core/cuda/stream.h"
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
+#include "axono/ops/cuda/matmul_lt.h"
 
 namespace axono {
 namespace ops {
@@ -97,13 +100,14 @@ core::Status Int32MatMul(const core::Tensor &a, const core::Tensor &b,
   constexpr size_t BLOCK = 16;
   dim3 block(BLOCK, BLOCK);
   dim3 grid((n + BLOCK - 1) / BLOCK, (m + BLOCK - 1) / BLOCK);
-  MatMulTiledKernel<int32_t><<<grid, block>>>(a.data<int32_t>(),
-                                              b.data<int32_t>(),
-                                              result.data<int32_t>(), m, n, k);
+  MatMulTiledKernel<int32_t><<<grid, block, 0,
+                               axono::core::cuda::AxonoCurrentStream()>>>(
+      a.data<int32_t>(), b.data<int32_t>(), result.data<int32_t>(), m, n, k);
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess) {
     return core::Status::INTERNAL_ERROR;
   }
+  if (core::cuda::IsCapturing()) return core::Status::OK;
   return cudaDeviceSynchronize() == cudaSuccess ? core::Status::OK
                                                 : core::Status::INTERNAL_ERROR;
 }
@@ -136,9 +140,19 @@ core::Status MatMul(const core::Context &ctx, const core::Tensor &a,
 
   try {
     cublasHandle_t handle = GetCublasHandle();
+    cublasSetStream(handle, axono::core::cuda::AxonoCurrentStream());
     switch (a.dtype()) {
       case core::DataType::FLOAT32: {
         const float alpha = 1.0f, beta = 0.0f;
+        // 优先 cuBLASLt (heuristic 选核); 失败回退经典 cuBLAS
+        if (TryLtGemmF32(static_cast<int>(n), static_cast<int>(m),
+                         static_cast<int>(k), &alpha, b.data<float>(),
+                         static_cast<int>(ldb), a.data<float>(),
+                         static_cast<int>(lda), &beta, result.data<float>(),
+                         static_cast<int>(ldc),
+                         axono::core::cuda::AxonoCurrentStream())) {
+          break;
+        }
         AXONO_CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, m,
                                        k, &alpha, b.data<float>(), ldb,
                                        a.data<float>(), lda, &beta,
@@ -147,6 +161,14 @@ core::Status MatMul(const core::Context &ctx, const core::Tensor &a,
       }
       case core::DataType::FLOAT64: {
         const double alpha = 1.0, beta = 0.0;
+        if (TryLtGemmF64(static_cast<int>(n), static_cast<int>(m),
+                         static_cast<int>(k), &alpha, b.data<double>(),
+                         static_cast<int>(ldb), a.data<double>(),
+                         static_cast<int>(lda), &beta, result.data<double>(),
+                         static_cast<int>(ldc),
+                         axono::core::cuda::AxonoCurrentStream())) {
+          break;
+        }
         AXONO_CUBLAS_CHECK(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, m,
                                        k, &alpha, b.data<double>(), ldb,
                                        a.data<double>(), lda, &beta,
@@ -162,7 +184,8 @@ core::Status MatMul(const core::Context &ctx, const core::Tensor &a,
     return core::Status::INTERNAL_ERROR;
   }
 
-  if (cudaDeviceSynchronize() != cudaSuccess) {
+  // Graph 捕获期间禁止同步 (回放后由绑定层统一同步)
+  if (!core::cuda::IsCapturing() && cudaDeviceSynchronize() != cudaSuccess) {
     return core::Status::INTERNAL_ERROR;
   }
   return core::Status::OK;
@@ -188,9 +211,18 @@ core::Status MatMulAccumulate(const core::Context &ctx, const core::Tensor &a,
   // 调用方 (绑定层) 需保证这一点。
   try {
     cublasHandle_t handle = GetCublasHandle();
+    cublasSetStream(handle, axono::core::cuda::AxonoCurrentStream());
     switch (a.dtype()) {
       case core::DataType::FLOAT32: {
         const float alpha = 1.0f, beta = 1.0f;
+        if (TryLtGemmF32(static_cast<int>(n), static_cast<int>(m),
+                         static_cast<int>(k), &alpha, b.data<float>(),
+                         static_cast<int>(ldb), a.data<float>(),
+                         static_cast<int>(lda), &beta, result.data<float>(),
+                         static_cast<int>(ldc),
+                         axono::core::cuda::AxonoCurrentStream())) {
+          break;
+        }
         AXONO_CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, m,
                                        k, &alpha, b.data<float>(), ldb,
                                        a.data<float>(), lda, &beta,
@@ -199,6 +231,14 @@ core::Status MatMulAccumulate(const core::Context &ctx, const core::Tensor &a,
       }
       case core::DataType::FLOAT64: {
         const double alpha = 1.0, beta = 1.0;
+        if (TryLtGemmF64(static_cast<int>(n), static_cast<int>(m),
+                         static_cast<int>(k), &alpha, b.data<double>(),
+                         static_cast<int>(ldb), a.data<double>(),
+                         static_cast<int>(lda), &beta, result.data<double>(),
+                         static_cast<int>(ldc),
+                         axono::core::cuda::AxonoCurrentStream())) {
+          break;
+        }
         AXONO_CUBLAS_CHECK(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, n, m,
                                        k, &alpha, b.data<double>(), ldb,
                                        a.data<double>(), lda, &beta,
@@ -213,7 +253,7 @@ core::Status MatMulAccumulate(const core::Context &ctx, const core::Tensor &a,
     return core::Status::INTERNAL_ERROR;
   }
 
-  if (cudaDeviceSynchronize() != cudaSuccess) {
+  if (!core::cuda::IsCapturing() && cudaDeviceSynchronize() != cudaSuccess) {
     return core::Status::INTERNAL_ERROR;
   }
   return core::Status::OK;
