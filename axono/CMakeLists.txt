@@ -34,9 +34,10 @@ target_include_directories(libaxono PRIVATE
 
 if(WITH_CUDA)
   target_compile_definitions(libaxono PRIVATE WITH_CUDA AXONO_WITH_CUDA)
-  # cuBLAS
+  # cuBLAS / cuBLASLt
   find_package(CUDAToolkit REQUIRED)
-  target_link_libraries(libaxono PRIVATE CUDA::cudart CUDA::cublas)
+  target_link_libraries(libaxono PRIVATE CUDA::cudart CUDA::cublas
+                        CUDA::cublasLt)
   set_target_properties(libaxono PROPERTIES
       CUDA_SEPARABLE_COMPILATION ON
       POSITION_INDEPENDENT_CODE ON)

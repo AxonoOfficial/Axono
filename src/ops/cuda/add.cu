@@ -2,6 +2,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include "axono/core/cuda/stream.h"
+#include "axono/core/cuda/capture.h"
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
@@ -54,26 +56,26 @@ core::Status DispatchAdd(const core::Tensor &a, const core::Tensor &b, core::Ten
   // 根据数据类型选择内核
   switch (a.dtype()) {
   case core::DataType::FLOAT32:
-    AddKernel<float><<<launch_config, 256>>>(
+    AddKernel<float><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         a.data<float>(), b.data<float>(), result.data<float>(), num_elements);
     break;
   case core::DataType::FLOAT64:
-    AddKernel<double><<<launch_config, 256>>>(
+    AddKernel<double><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         a.data<double>(), b.data<double>(), result.data<double>(), num_elements);
     break;
   case core::DataType::INT32:
-    AddKernel<int32_t><<<launch_config, 256>>>(
+    AddKernel<int32_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         a.data<int32_t>(), b.data<int32_t>(), result.data<int32_t>(), num_elements);
     break;
   case core::DataType::INT64:
-    AddKernel<int64_t><<<launch_config, 256>>>(
+    AddKernel<int64_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         a.data<int64_t>(), b.data<int64_t>(), result.data<int64_t>(), num_elements);
     break;
   default:
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  cudaDeviceSynchronize();
+  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
   return core::Status::OK;
 }
 core::Status Add(const core::Context &ctx, const core::Tensor &a, const core::Tensor &b,
@@ -134,7 +136,7 @@ core::Status DispatchAddScalar(const core::Tensor &a, void *scalar,
     if (scalar_size >= sizeof(float)) {
       memcpy(&scalar_value, scalar, sizeof(float));
     }
-    AddScalarKernel<float><<<launch_config, 256>>>(
+    AddScalarKernel<float><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         a.data<float>(), scalar_value, result.data<float>(), num_elements);
     break;
   }
@@ -143,7 +145,7 @@ core::Status DispatchAddScalar(const core::Tensor &a, void *scalar,
     if (scalar_size >= sizeof(double)) {
       memcpy(&scalar_value, scalar, sizeof(double));
     }
-    AddScalarKernel<double><<<launch_config, 256>>>(
+    AddScalarKernel<double><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         a.data<double>(), scalar_value, result.data<double>(), num_elements);
     break;
   }
@@ -152,7 +154,7 @@ core::Status DispatchAddScalar(const core::Tensor &a, void *scalar,
     if (scalar_size >= sizeof(int32_t)) {
       memcpy(&scalar_value, scalar, sizeof(int32_t));
     }
-    AddScalarKernel<int32_t><<<launch_config, 256>>>(
+    AddScalarKernel<int32_t><<<launch_config, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         a.data<int32_t>(), scalar_value, result.data<int32_t>(), num_elements);
     break;
   }
@@ -160,7 +162,7 @@ core::Status DispatchAddScalar(const core::Tensor &a, void *scalar,
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  cudaDeviceSynchronize();
+  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
   return core::Status::OK;
 }
 

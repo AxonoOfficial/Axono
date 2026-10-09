@@ -1,4 +1,6 @@
 #include <curand_kernel.h>
+
+#include "axono/core/cuda/stream.h"
 #include <random>
 
 #include "axono/core/types.h"
@@ -32,7 +34,7 @@ core::Status DispatchRandn(const core::Context& ctx, core::Tensor& out, float me
     // 启动核弹咯
     const int block_size = 256;
     const int grid_size = (num_elements + block_size - 1) / block_size;
-    RandnKernel<T><<<grid_size, block_size>>>(
+    RandnKernel<T><<<grid_size, block_size, 0, axono::core::cuda::AxonoCurrentStream()>>>(
         out.data<T>(), num_elements, mean, stddev, seed
     );
 

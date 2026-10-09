@@ -17,9 +17,13 @@
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
 #ifdef AXONO_WITH_CUDA
+#include "axono/core/cuda/capture.h"
+#include "axono/core/cuda/capture_pool.h"
+#include "axono/core/cuda/graph.h"
 #include "axono/core/cuda/tensor/kernel.h"
 #include "axono/ops/cuda/add.h"
 #include "axono/ops/cuda/matmul.h"
+#include "axono/ops/cuda/matmul_lt.h"
 #include "axono/ops/cuda/relu.h"
 #endif
 #include "axono/ops/cpu/add.h"
@@ -435,5 +439,103 @@ NB_MODULE(libaxono, m) {
     return false;
 #endif
   });
+
+#ifdef AXONO_WITH_CUDA
+  // ---- cuBLASLt 开关 ----
+  m.def("use_cublas_lt", [](bool enable) {
+         ops::cuda::UseCublasLt(enable);
+       }, nb::arg("enable"), nb::sig("def use_cublas_lt(enable: bool) -> None"));
+  m.def("cublas_lt_enabled", []() {
+         return ops::cuda::CublasLtEnabled();
+       });
+
+  // ---- CUDA Graph ----
+  // 低层流句柄 API (供 Python 上下文管理器使用)
+  m.def("_graph_begin_capture", []() {
+         cudaStream_t stream = nullptr;
+         core::Status st = core::cuda::BeginGraphCapture(&stream);
+         if (st != core::Status::OK)
+           throw std::runtime_error("_graph_begin_capture 失败");
+         return reinterpret_cast<intptr_t>(stream);
+       });
+  m.def("_graph_end_capture",
+        [](intptr_t handle, core::cuda::CudaGraphExec &exec) {
+          auto stream = reinterpret_cast<cudaStream_t>(handle);
+          core::Status st = core::cuda::EndGraphCapture(stream, &exec);
+          if (st != core::Status::OK)
+            throw std::runtime_error(
+                "_graph_end_capture: 捕获体内含非法调用 (同步/H2D/分配) "
+                "或未提交任何 kernel");
+        });
+  m.def("_graph_abort_capture", [](intptr_t handle) {
+         core::cuda::AbortGraphCapture(
+             reinterpret_cast<cudaStream_t>(handle));
+       });
+
+  // 用法: g = CUDAGraph(); g.capture(fn); g.replay(); g.reset()
+  // capture 体内只能提交 CUDA 算子 (matmul/add/relu), 不能有 H2D/D2H。
+  nb::class_<core::cuda::CudaGraphExec>(m, "CUDAGraph")
+      .def(nb::init<>())
+      .def(
+          "capture",
+          [](core::cuda::CudaGraphExec &self, nb::callable fn) {
+            // 1) warmup: 登记模式跑一遍, 所有 CUDA 分配进入捕获池
+            core::cuda::ResetCapturePool();
+            core::cuda::SetCapturePoolRecording(true);
+            try {
+              fn();
+            } catch (...) {
+              core::cuda::SetCapturePoolRecording(false);
+              throw;
+            }
+            core::cuda::SetCapturePoolRecording(false);
+
+            // 2) 正式捕获: 同尺寸分配命中池 (地址不变), 图内仅 kernel 节点
+            cudaStream_t stream = nullptr;
+            core::Status st = core::cuda::BeginGraphCapture(&stream);
+            if (st != core::Status::OK)
+              throw std::runtime_error("CUDAGraph.capture: 开始捕获失败");
+            try {
+              fn();  // 体内算子经 AxonoCurrentStream() 提交到捕获流
+            } catch (...) {
+              core::cuda::AbortGraphCapture(stream);
+              throw;
+            }
+            st = core::cuda::EndGraphCapture(stream, &self);
+            if (st != core::Status::OK)
+              throw std::runtime_error(
+                  "CUDAGraph.capture: 捕获体内含有非法调用 "
+                  "(同步/内存分配/H2D拷贝) 或未提交任何 kernel");
+          },
+          nb::arg("fn"), nb::sig("def capture(self, fn) -> None"))
+      .def(
+          "replay",
+          [](core::cuda::CudaGraphExec &self) {
+            core::Status st = self.Replay(0);
+            if (st != core::Status::OK)
+              throw std::runtime_error(
+                  "CUDAGraph.replay: 图未捕获或回放失败");
+          },
+          nb::sig("def replay(self) -> None"))
+      .def(
+          "sync",
+          [](core::cuda::CudaGraphExec &self) {
+            core::Status st = self.Sync();
+            if (st != core::Status::OK)
+              throw std::runtime_error("CUDAGraph.sync 失败");
+          },
+          nb::sig("def sync(self) -> None"))
+      .def(
+          "reset",
+          [](core::cuda::CudaGraphExec &self) {
+            // 图与捕获池一并回收 (池里的块专供本次捕获复用)
+            self.Reset();
+            core::cuda::ResetCapturePool();
+          },
+          nb::sig("def reset(self) -> None"))
+      .def_prop_ro("is_captured", &core::cuda::CudaGraphExec::IsCaptured)
+      .def_prop_ro("num_nodes", &core::cuda::CudaGraphExec::NumNodes);
+#endif
+
   m.attr("__version__") = "0.2.0";
 }
