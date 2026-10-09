@@ -71,34 +71,76 @@ def test_graph_output_updates_with_input(cuda_env):
     # 先回放一次: a @ (全 2 矩阵) = 行和 * 2 (广播到每行)
     g.replay()
     g.sync()
-    np.testing.assert_allclose(out.to("cpu").to_numpy(), rowsum * 2.0 + 0.0 * a_np,
-                               rtol=1e-3, atol=1e-3)
+    np.testing.assert_allclose(
+        out.to("cpu").to_numpy(), rowsum * 2.0 + 0.0 * a_np, rtol=1e-3, atol=1e-3
+    )
 
     # 原地把 b 改为全 3 (地址不变), 再回放: 结果应变为 行和 * 3
     b.fill(3.0)
     g.replay()
     g.sync()
-    np.testing.assert_allclose(out.to("cpu").to_numpy(), rowsum * 3.0 + 0.0 * a_np,
-                               rtol=1e-3, atol=1e-3)
+    np.testing.assert_allclose(
+        out.to("cpu").to_numpy(), rowsum * 3.0 + 0.0 * a_np, rtol=1e-3, atol=1e-3
+    )
     g.reset()
 
 
 @pytest.mark.skipif(not axono.cuda_available(), reason="需要 CUDA 构建")
 def test_graph_context_manager(cuda_env):
+    """``with axono.cuda_graph() as g:`` 语句块捕获 + 块内 g.output = y。"""
     a = axono.Tensor.randn([16, 16])
     b = axono.Tensor.randn([16, 16])
     a_np, b_np = a.to("cpu").to_numpy(), b.to("cpu").to_numpy()
 
-    # cuda_graph 上下文管理器: 体内算子通过稳定的捕获流入图,
-    # 输出从体内最后一步的张量读取 (relu 结果)。
-    g = axono.CUDAGraph()
-    g.capture(lambda: axono.relu(axono.matmul(a, b)))
-    g.replay()
-    g.sync()
-    np.testing.assert_allclose(
-        g.output.to("cpu").to_numpy(), np.maximum(a_np @ b_np, 0.0),
-        rtol=1e-4, atol=1e-4,
+    with axono.cuda_graph() as g:
+        y = axono.relu(axono.matmul(a, b))
+        g.output = y  # 显式指定输出张量
+    assert g.is_captured
+    assert g.num_nodes >= 2
+
+    for _ in range(4):
+        g.replay()
+        g.sync()
+        np.testing.assert_allclose(
+            g.output.to("cpu").to_numpy(),
+            np.maximum(a_np @ b_np, 0.0),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+    g.reset()
+
+
+@pytest.mark.skipif(not axono.cuda_available(), reason="需要 CUDA 构建")
+def test_graph_context_manager_with_temporaries(cuda_env):
+    """上下文管理器捕获含临时张量 (图内 alloc 节点) 的链, 可反复回放。
+
+    这是 AutoFreeOnLaunch flag 的关键回归: 不加 flag 时含 alloc 节点的
+    图第二次 cudaGraphLaunch 会报 invalid argument。
+    """
+    a = axono.Tensor.randn([64, 64])
+    b = axono.Tensor.randn([64, 64])
+    c = axono.Tensor.randn([64, 64])
+
+    with axono.cuda_graph() as g:
+        tmp = axono.matmul(a, b)  # 临时: 图内分配
+        y = axono.add(axono.relu(tmp), c)
+        g.output = y
+    assert g.num_nodes >= 3
+
+    ref = None
+    for i in range(5):
+        g.replay()
+        g.sync()
+        cur = g.output.to("cpu").to_numpy()
+        if ref is None:
+            ref = cur
+        else:
+            np.testing.assert_allclose(cur, ref, rtol=1e-5, atol=1e-5)
+    expected = (
+        np.maximum(a.to("cpu").to_numpy() @ b.to("cpu").to_numpy(), 0.0)
+        + c.to("cpu").to_numpy()
     )
+    np.testing.assert_allclose(ref, expected, rtol=1e-3, atol=1e-3)
     g.reset()
 
 

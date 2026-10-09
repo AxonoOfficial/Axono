@@ -90,7 +90,12 @@ Status CudaGraphExec::Finalize(cudaStream_t capture_stream) {
     }
 
     cudaGraphExec_t exec = nullptr;
-    cudaError_t err = cudaGraphInstantiate(&exec, graph_, nullptr, nullptr, 0);
+    // AutoFreeOnLaunch: 每次 launch 自动重发图内的 free 节点。实测
+    // (V100/CUDA 12.8) 含 alloc 节点的图不加此 flag 时第二次
+    // cudaGraphLaunch 报 invalid argument, 加此 flag 后可正常重复
+    // 回放 —— 是原生 stream-ordered 分配入图路径的必要开关。
+    cudaError_t err = cudaGraphInstantiateWithFlags(
+        &exec, graph_, cudaGraphInstantiateFlagAutoFreeOnLaunch);
     if (err != cudaSuccess) {
       cudaGraphDestroy(graph_);
       graph_ = nullptr;
