@@ -22,7 +22,12 @@ from .core import (
     operators,
     set_default_device,
 )
-from .core.ops import relu
+from .core.config import (
+    is_inplace_enabled,
+    set_inplace_enabled,
+)
+from .core.ops import relu, relu_
+from .core.operators import add, matmul
 
 __version__ = "0.2.0"
 __author__ = "ByteRainLab"
@@ -34,9 +39,14 @@ __all__ = [
     "Tensor",
     "operators",
     "relu",
+    "relu_",
+    "add",
+    "matmul",
     "cuda_available",
     "get_default_device",
     "set_default_device",
+    "set_inplace_enabled",
+    "is_inplace_enabled",
     "welcome",
 ]
 

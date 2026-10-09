@@ -281,24 +281,118 @@ NB_MODULE(libaxono, m) {
     return result;
   }, nb::arg("a"), nb::arg("b"));
 
-  m.def("relu", [](const core::Tensor &input, bool inplace) {
-    if (inplace) {
-      core::Tensor t = input;  // 拷贝后原地
-      core::Status st;
-      if (t.is_cuda()) {
+  // add_into: result = a + b, result 可与 a/b 同存储 (真 inplace)。
+  m.def("add_into",
+        [](const core::Tensor &a, const core::Tensor &b, core::Tensor &result) {
+          if (check_device_match(a, b) != core::Status::OK ||
+              check_device_match(a, result) != core::Status::OK)
+            throw std::runtime_error("add_into: 输入张量不在同一设备上");
+          if (a.dtype() != b.dtype() || a.dtype() != result.dtype())
+            throw std::runtime_error("add_into: 数据类型不一致");
+          if (!a.IsSameShape(result) || !b.IsSameShape(result))
+            throw std::runtime_error("add_into: 形状不匹配");
+          core::Status st;
+          if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-        st = ops::cuda::ReluInplace(core::Context(), t);
+            st = ops::cuda::Add(core::Context(), a, b, result);
 #else
-        st = core::Status::DEVICE_ERROR;
+            st = core::Status::DEVICE_ERROR;
 #endif
-      } else {
-        st = ops::cpu::ReluInplace(core::Context(), t);
-      }
-      if (st != core::Status::OK)
-        throw std::runtime_error("relu(inplace) 失败, 错误代码: " +
-                                 std::to_string(static_cast<int>(st)));
-      return t;
+          } else {
+            st = ops::cpu::Add(core::Context(), a, b, result);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("add_into 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+        },
+        nb::arg("a"), nb::arg("b"), nb::arg("out"));
+
+  // add_: a += b (真原地, 零分配)
+  m.def("add_", [](core::Tensor &a, const core::Tensor &b) {
+    if (check_device_match(a, b) != core::Status::OK)
+      throw std::runtime_error("add_: 输入张量不在同一设备上");
+    if (a.dtype() != b.dtype())
+      throw std::runtime_error("add_: 数据类型不一致");
+    if (!a.IsSameShape(b))
+      throw std::runtime_error("add_: 形状不匹配");
+    core::Status st;
+    if (a.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+      st = ops::cuda::Add(core::Context(), a, b, a);
+#else
+      st = core::Status::DEVICE_ERROR;
+#endif
+    } else {
+      st = ops::cpu::Add(core::Context(), a, b, a);
     }
+    if (st != core::Status::OK)
+      throw std::runtime_error("add_ 失败, 错误代码: " +
+                               std::to_string(static_cast<int>(st)));
+  }, nb::arg("a"), nb::arg("b"), nb::sig("def add_(a, b) -> None"));
+
+  // matmul_into: result = a @ b, out 参数版
+  m.def("matmul_into",
+        [](const core::Tensor &a, const core::Tensor &b, core::Tensor &result) {
+          if (check_device_match(a, b) != core::Status::OK ||
+              check_device_match(a, result) != core::Status::OK)
+            throw std::runtime_error("matmul_into: 输入张量不在同一设备上");
+          if (a.dtype() != b.dtype() || a.dtype() != result.dtype())
+            throw std::runtime_error("matmul_into: 数据类型不一致");
+          if (a.ndim() != 2 || b.ndim() != 2)
+            throw std::runtime_error("matmul_into: 目前仅支持二维矩阵");
+          if (a.shape()[1] != b.shape()[0])
+            throw std::runtime_error("matmul_into: 形状不匹配");
+          if (result.shape()[0] != a.shape()[0] ||
+              result.shape()[1] != b.shape()[1])
+            throw std::runtime_error("matmul_into: out 形状不匹配");
+          core::Status st;
+          if (a.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::MatMul(core::Context(), a, b, result);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::MatMul(core::Context(), a, b, result);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("matmul_into 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+        },
+        nb::arg("a"), nb::arg("b"), nb::arg("out"));
+
+  // matmul_: a = a @ b (cuBLAS 无法别名读写, 经一次临时后 swap,
+  // 语义等同 torch 的 out-place + 赋值, 但不新增 Python 对象)
+  m.def("matmul_", [](core::Tensor &a, const core::Tensor &b) {
+    if (check_device_match(a, b) != core::Status::OK)
+      throw std::runtime_error("matmul_: 输入张量不在同一设备上");
+    if (a.dtype() != b.dtype())
+      throw std::runtime_error("matmul_: 数据类型不一致");
+    if (a.ndim() != 2 || b.ndim() != 2)
+      throw std::runtime_error("matmul_: 目前仅支持二维矩阵");
+    if (a.shape()[1] != b.shape()[0])
+      throw std::runtime_error("matmul_: 形状不匹配");
+    core::Tensor result(a.dtype(),
+                        std::vector<size_t>{a.shape()[0], b.shape()[1]},
+                        a.device());
+    core::Status st;
+    if (a.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+      st = ops::cuda::MatMul(core::Context(), a, b, result);
+#else
+      st = core::Status::DEVICE_ERROR;
+#endif
+    } else {
+      st = ops::cpu::MatMul(core::Context(), a, b, result);
+    }
+    if (st != core::Status::OK)
+      throw std::runtime_error("matmul_ 失败, 错误代码: " +
+                               std::to_string(static_cast<int>(st)));
+    a = std::move(result);
+  }, nb::arg("a"), nb::arg("b"), nb::sig("def matmul_(a, b) -> None"));
+
+  // relu: 非原地, 返回新张量 (输入保证不变)
+  m.def("relu", [](const core::Tensor &input) {
     core::Tensor result(input.dtype(), input.shape(), input.device());
     core::Status st;
     if (input.is_cuda()) {
@@ -314,7 +408,24 @@ NB_MODULE(libaxono, m) {
       throw std::runtime_error("relu 失败, 错误代码: " +
                                std::to_string(static_cast<int>(st)));
     return result;
-  }, nb::arg("x"), nb::arg("inplace") = false);
+  }, nb::arg("x"));
+
+  // relu_: 真原地 (直接在输入存储上执行 kernel, 无任何拷贝/临时)
+  m.def("relu_", [](core::Tensor &input) {
+    core::Status st;
+    if (input.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+      st = ops::cuda::ReluInplace(core::Context(), input);
+#else
+      st = core::Status::DEVICE_ERROR;
+#endif
+    } else {
+      st = ops::cpu::ReluInplace(core::Context(), input);
+    }
+    if (st != core::Status::OK)
+      throw std::runtime_error("relu_ 失败, 错误代码: " +
+                               std::to_string(static_cast<int>(st)));
+  }, nb::arg("x"), nb::sig("def relu_(x) -> None"));
 
   // ---- 信息 ----
   m.def("cuda_available", []() {

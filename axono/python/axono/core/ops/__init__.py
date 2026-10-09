@@ -10,6 +10,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .relu import relu
+from .relu import relu, relu_
 
-__all__ = ["relu"]
+__all__ = ["relu", "relu_"]

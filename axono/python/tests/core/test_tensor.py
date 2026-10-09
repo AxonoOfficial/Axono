@@ -22,7 +22,7 @@ from ..conftest import assert_allclose
 class TestCreation:
     def test_creation_shapes(self):
         for shape in [[1], [2, 3], [1, 1, 1], [2, 2, 2, 2]]:
-            t = Tensor(shape=shape)
+            t = Tensor(DataType.FLOAT32, shape)
             assert t.shape == shape
 
     def test_is_same_shape(self):

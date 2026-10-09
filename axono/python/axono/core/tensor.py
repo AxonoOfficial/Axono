@@ -10,7 +10,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Axono Tensor — Python interface for the C++ Tensor (v0.2, nanobind).
+Axono Tensor — v0.2 重构。
+
+关键变化 (相对旧版):
+- Tensor 直接就是 C++ 绑定类 (libaxono.Tensor), 不再有 Python 包装层,
+  每次算子调用不再经过 from_raw() 二次封装 —— 绑定函数返回的对象
+  即最终 Tensor, 零额外分配;
+- 便利方法 (from_numpy / zeros / ones / T / 运算符等) 以猴子补丁方式
+  附加到绑定类上, 实例方法直接访问底层 C++ 实现。
 
 设备 API:
     axono.set_default_device("cpu" | "cuda" | "cuda:0")   # 全局默认设备
@@ -21,11 +28,16 @@ Axono Tensor — Python interface for the C++ Tensor (v0.2, nanobind).
 from __future__ import annotations
 
 import numpy as np
+import libaxono as _l
 from libaxono import DataType, Status
-from libaxono import Tensor as _Tensor
 
 # ---------------------------------------------------------------------------
-# 默认设备管理 (取代散落各处的 os.getenv("axono_default_device") 读取)
+# 绑定类即公开类
+# ---------------------------------------------------------------------------
+Tensor = _l.Tensor
+
+# ---------------------------------------------------------------------------
+# 默认设备管理
 # ---------------------------------------------------------------------------
 _DEFAULT_DEVICE = "cpu"
 
@@ -43,252 +55,193 @@ def get_default_device() -> str:
     return _DEFAULT_DEVICE
 
 
-class Tensor:
-    """Python Tensor class wrapping the C++ Tensor."""
+# ---------------------------------------------------------------------------
+# dtype 映射
+# ---------------------------------------------------------------------------
+_NUMPY_TO_DTYPE = {
+    np.int8: DataType.INT8,
+    np.int16: DataType.INT16,
+    np.int32: DataType.INT32,
+    np.int64: DataType.INT64,
+    np.float32: DataType.FLOAT32,
+    np.float64: DataType.FLOAT64,
+    np.bool_: DataType.BOOLEAN,
+}
 
-    def __init__(
-        self,
-        dtype: DataType = DataType.FLOAT32,
-        shape: list | tuple | None = None,
-        device: str | None = None,
-    ):
-        if shape is None:
-            self._tensor = _Tensor(dtype)
-        else:
-            self._tensor = _Tensor(
-                dtype, list(shape), device or get_default_device()
-            )
+_DTYPE_TO_ACCESSOR = {
+    DataType.INT8: "data_int8",
+    DataType.INT16: "data_int16",
+    DataType.INT32: "data_int32",
+    DataType.INT64: "data_int64",
+    DataType.FLOAT32: "data_float32",
+    DataType.FLOAT64: "data_float64",
+    DataType.BOOLEAN: "data_bool",
+}
 
-    # ------------------------------------------------------------------
-    # 构造工具
-    # ------------------------------------------------------------------
-    @classmethod
-    def create_like(cls, other: "Tensor") -> "Tensor":
-        """Create a tensor with the same shape and dtype as ``other``."""
-        return cls.from_raw(_Tensor.create_like(other._tensor))
 
-    @classmethod
-    def from_raw(cls, raw_tensor) -> "Tensor":
-        obj = cls.__new__(cls)
-        obj._tensor = raw_tensor
-        return obj
+# ---------------------------------------------------------------------------
+# 附加到绑定类上的便利方法
+# ---------------------------------------------------------------------------
+def _tensor_from_numpy(cls, array: np.ndarray) -> "Tensor":
+    """Create a Tensor from a numpy array (copies data)."""
+    if not array.flags["C_CONTIGUOUS"]:
+        array = np.ascontiguousarray(array)
 
-    @classmethod
-    def from_numpy(cls, array: np.ndarray) -> "Tensor":
-        """Create a Tensor from a numpy array (copies data)."""
-        dtype_map = {
-            np.int8: DataType.INT8,
-            np.int16: DataType.INT16,
-            np.int32: DataType.INT32,
-            np.int64: DataType.INT64,
-            np.float32: DataType.FLOAT32,
-            np.float64: DataType.FLOAT64,
-            np.bool_: DataType.BOOLEAN,
-        }
-        if not array.flags["C_CONTIGUOUS"]:
-            array = np.ascontiguousarray(array)
+    dtype = _NUMPY_TO_DTYPE.get(array.dtype.type)
+    if dtype is None:
+        array = array.astype(np.float32)
+        dtype = DataType.FLOAT32
 
-        dtype = dtype_map.get(array.dtype.type)
-        if dtype is None:
-            # 不认识的类型统一转 float32
-            array = array.astype(np.float32)
-            dtype = DataType.FLOAT32
+    tensor = cls(dtype, list(array.shape), device="cpu")
+    getattr(tensor, _DTYPE_TO_ACCESSOR[dtype])()[:] = array
 
-        tensor = cls(dtype, list(array.shape), device="cpu")
-        accessor = tensor._tensor
+    default = get_default_device()
+    if default != "cpu":
+        tensor = tensor.to(default)
+    return tensor
 
-        if dtype == DataType.INT8:
-            accessor.data_int8()[:] = array
-        elif dtype == DataType.INT16:
-            accessor.data_int16()[:] = array
-        elif dtype == DataType.INT32:
-            accessor.data_int32()[:] = array
-        elif dtype == DataType.INT64:
-            accessor.data_int64()[:] = array
-        elif dtype == DataType.FLOAT32:
-            accessor.data_float32()[:] = array
-        elif dtype == DataType.FLOAT64:
-            accessor.data_float64()[:] = array
-        elif dtype == DataType.BOOLEAN:
-            accessor.data_bool()[:] = array
 
-        # 与全局默认设备保持一致 (from_numpy 恒先落 CPU, 再按需迁移)
-        default = get_default_device()
-        if default != "cpu":
-            tensor = tensor.to(default)
-        return tensor
+def _tensor_to_numpy(self) -> np.ndarray:
+    """Return the tensor data as a numpy array."""
+    name = _DTYPE_TO_ACCESSOR.get(self.dtype)
+    if name is None:
+        raise ValueError(f"Unsupported dtype for numpy conversion: {self.dtype}")
+    return getattr(self, name)()
 
-    # ------------------------------------------------------------------
-    # 设备 / 形状
-    # ------------------------------------------------------------------
-    def is_cuda(self) -> bool:
-        return self._tensor.is_cuda
 
-    def to(self, device: str) -> "Tensor":
-        return Tensor.from_raw(self._tensor.to(device))
-
-    def transpose(self, dim0: int = -2, dim1: int = -1) -> "Tensor":
-        return Tensor.from_raw(self._tensor.transpose(dim0, dim1))
-
-    @property
-    def T(self) -> "Tensor":
-        """2D 快捷转置 (等价 transpose(-2, -1))"""
-        return self.transpose()
-
-    def reshape(self, new_shape) -> "Tensor":
-        status = self._tensor.reshape(list(new_shape))
-        if status != Status.OK:
-            raise RuntimeError(f"Reshape failed with status: {status}")
-        return self
-
-    def resize(self, new_shape) -> "Tensor":
-        status = self._tensor.resize(list(new_shape))
-        if status != Status.OK:
-            raise RuntimeError(f"Resize failed with status: {status}")
-        return self
-
-    # ------------------------------------------------------------------
-    # 填充
-    # ------------------------------------------------------------------
-    def fill_zero(self) -> "Tensor":
-        status = self._tensor.fill_zero()
-        if status != Status.OK:
-            raise RuntimeError(f"Fill zero failed with status: {status}")
-        return self
-
-    def fill(self, value) -> "Tensor":
-        status = self._tensor.fill(value)
-        if status != Status.OK:
-            raise RuntimeError(f"Fill failed with status: {status}")
-        return self
-
-    # ------------------------------------------------------------------
-    # 运算符
-    # ------------------------------------------------------------------
-    def __matmul__(self, other) -> "Tensor":
-        from .operators import matmul
-
-        return matmul(self, other)
-
-    def __add__(self, other) -> "Tensor":
-        from .operators import add
-
-        return add(self, other)
-
-    __radd__ = __add__
-    __rmatmul__ = __matmul__
-
-    # ------------------------------------------------------------------
-    # 数据交互
-    # ------------------------------------------------------------------
-    def to_numpy(self) -> np.ndarray:
-        """Return the tensor data as a numpy array."""
-        accessors = {
-            DataType.INT8: "data_int8",
-            DataType.INT16: "data_int16",
-            DataType.INT32: "data_int32",
-            DataType.INT64: "data_int64",
-            DataType.FLOAT32: "data_float32",
-            DataType.FLOAT64: "data_float64",
-            DataType.BOOLEAN: "data_bool",
-        }
-        name = accessors.get(self.dtype)
-        if name is None:
-            raise ValueError(f"Unsupported dtype for numpy conversion: {self.dtype}")
-        return getattr(self._tensor, name)()
-
-    def copy_from_numpy(self, array: np.ndarray) -> "Tensor":
-        """原地写入 numpy 数据 (形状/类型须与当前张量匹配)。"""
-        if list(array.shape) != self.shape:
-            raise ValueError(
-                f"copy_from_numpy: 形状不匹配 {list(array.shape)} vs {self.shape}"
-            )
-        source = Tensor.from_numpy(np.ascontiguousarray(array))
-        if source.dtype != self.dtype:
-            raise ValueError(f"copy_from_numpy: dtype 不匹配 {source.dtype} vs {self.dtype}")
-        self._tensor.copy_from(source._tensor)
-        return self
-
-    def is_same_shape(self, other: "Tensor") -> bool:
-        return self._tensor.is_same_shape(other._tensor)
-
-    # ------------------------------------------------------------------
-    # 属性
-    # ------------------------------------------------------------------
-    @property
-    def dtype(self) -> DataType:
-        return self._tensor.dtype
-
-    @property
-    def device(self) -> str:
-        return self._tensor.device
-
-    @property
-    def shape(self) -> list:
-        return list(self._tensor.shape)
-
-    @property
-    def ndim(self) -> int:
-        return self._tensor.ndim
-
-    @property
-    def num_elements(self) -> int:
-        return self._tensor.num_elements
-
-    @property
-    def num_bytes(self) -> int:
-        return self._tensor.num_bytes
-
-    def __repr__(self) -> str:
-        return self._tensor.__repr__()
-
-    def __str__(self) -> str:
-        return self._tensor.__str__()
-
-    # ------------------------------------------------------------------
-    # 工厂方法
-    # ------------------------------------------------------------------
-    @staticmethod
-    def randn(
-        shape,
-        dtype: DataType = DataType.FLOAT32,
-        device: str | None = None,
-        mean: float = 0.0,
-        stddev: float = 1.0,
-    ) -> "Tensor":
-        return Tensor.from_raw(
-            _Tensor.randn(
-                list(shape),
-                dtype=dtype,
-                device=device or get_default_device(),
-                mean=mean,
-                stddev=stddev,
-            )
+def _tensor_copy_from_numpy(self, array: np.ndarray) -> "Tensor":
+    """原地写入 numpy 数据 (形状/类型须与当前张量匹配)。"""
+    if list(array.shape) != list(self.shape):
+        raise ValueError(
+            f"copy_from_numpy: 形状不匹配 {list(array.shape)} vs {list(self.shape)}"
         )
+    source = Tensor.from_numpy(np.ascontiguousarray(array))
+    if source.dtype != self.dtype:
+        raise ValueError(f"copy_from_numpy: dtype 不匹配 {source.dtype} vs {self.dtype}")
+    self.copy_from(source)
+    return self
 
-    @staticmethod
-    def zeros(
-        shape, dtype: DataType = DataType.FLOAT32, device: str | None = None
-    ) -> "Tensor":
-        tensor = Tensor(dtype, shape, device=device)
-        tensor.fill_zero()
-        return tensor
 
-    @staticmethod
-    def ones(
-        shape, dtype: DataType = DataType.FLOAT32, device: str | None = None
-    ) -> "Tensor":
-        tensor = Tensor(dtype, shape, device=device)
-        tensor.fill(1)
-        return tensor
+def _tensor_is_cuda(self) -> bool:
+    return self.is_cuda
 
-    @staticmethod
-    def full(
-        shape,
-        value,
-        dtype: DataType = DataType.FLOAT32,
-        device: str | None = None,
-    ) -> "Tensor":
-        tensor = Tensor(dtype, shape, device=device)
-        tensor.fill(value)
-        return tensor
+
+def _tensor_T(self) -> "Tensor":
+    """2D 快捷转置 (等价 transpose(-2, -1))"""
+    return self.transpose()
+
+
+def _tensor_reshape(self, new_shape) -> "Tensor":
+    st = _orig["reshape"](self, list(new_shape))
+    if st != Status.OK:
+        raise RuntimeError(f"Reshape failed with status: {st}")
+    return self
+
+
+def _tensor_resize(self, new_shape) -> "Tensor":
+    st = _orig["resize"](self, list(new_shape))
+    if st != Status.OK:
+        raise RuntimeError(f"Resize failed with status: {st}")
+    return self
+
+
+def _tensor_fill_zero(self) -> "Tensor":
+    st = _orig["fill_zero"](self)
+    if st != Status.OK:
+        raise RuntimeError(f"Fill zero failed with status: {st}")
+    return self
+
+
+def _tensor_fill(self, value) -> "Tensor":
+    st = _orig["fill"](self, value)
+    if st != Status.OK:
+        raise RuntimeError(f"Fill failed with status: {st}")
+    return self
+
+
+def _tensor_matmul(self, other) -> "Tensor":
+    from .operators import matmul
+
+    return matmul(self, other)
+
+
+def _tensor_add(self, other) -> "Tensor":
+    from .operators import add
+
+    return add(self, other)
+
+
+def _tensor_is_same_shape(self, other: "Tensor") -> bool:
+    return self.is_same_shape(other)
+
+
+def _tensor_randn(shape, dtype: DataType = DataType.FLOAT32,
+                  device: str | None = None, mean: float = 0.0,
+                  stddev: float = 1.0) -> "Tensor":
+    return _orig["randn"](
+        list(shape),
+        dtype=dtype,
+        device=device or get_default_device(),
+        mean=mean,
+        stddev=stddev,
+    )
+
+
+def _tensor_zeros(shape, dtype: DataType = DataType.FLOAT32,
+                  device: str | None = None) -> "Tensor":
+    tensor = Tensor(dtype, list(shape), device=device or get_default_device())
+    tensor.fill_zero()
+    return tensor
+
+
+def _tensor_ones(shape, dtype: DataType = DataType.FLOAT32,
+                 device: str | None = None) -> "Tensor":
+    tensor = Tensor(dtype, list(shape), device=device or get_default_device())
+    tensor.fill(1)
+    return tensor
+
+
+def _tensor_full(shape, value, dtype: DataType = DataType.FLOAT32,
+                 device: str | None = None) -> "Tensor":
+    tensor = Tensor(dtype, list(shape), device=device or get_default_device())
+    tensor.fill(value)
+    return tensor
+
+
+def _tensor_create_like(other: "Tensor") -> "Tensor":
+    return _l.Tensor.create_like(other)
+
+
+def _attach() -> None:
+    """把便利方法挂到绑定类上 (幂等)。"""
+    orig = {
+        "reshape": _l.Tensor.reshape,
+        "resize": _l.Tensor.resize,
+        "fill_zero": _l.Tensor.fill_zero,
+        "fill": _l.Tensor.fill,
+        "randn": _l.Tensor.randn,
+    }
+    globals()["_orig"] = orig
+
+    # classmethod / staticmethod 工厂
+    Tensor.from_numpy = classmethod(_tensor_from_numpy)
+    Tensor.randn = staticmethod(_tensor_randn)
+    Tensor.zeros = staticmethod(_tensor_zeros)
+    Tensor.ones = staticmethod(_tensor_ones)
+    Tensor.full = staticmethod(_tensor_full)
+    Tensor.create_like = staticmethod(_tensor_create_like)
+    # 实例方法
+    Tensor.to_numpy = _tensor_to_numpy
+    Tensor.copy_from_numpy = _tensor_copy_from_numpy
+    Tensor.T = property(_tensor_T)
+    Tensor.reshape = _tensor_reshape
+    Tensor.resize = _tensor_resize
+    Tensor.fill_zero = _tensor_fill_zero
+    Tensor.fill = _tensor_fill
+    # 运算符
+    Tensor.__matmul__ = _tensor_matmul
+    Tensor.__add__ = _tensor_add
+    Tensor.__radd__ = _tensor_add
+
+
+_attach()

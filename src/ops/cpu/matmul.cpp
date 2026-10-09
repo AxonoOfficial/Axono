@@ -3,6 +3,8 @@
 #include <thread>
 #include <vector>
 
+#include "axono/ops/cpu/add.h"
+
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 
@@ -434,6 +436,34 @@ core::Status MatMul(const core::Context &ctx, const core::Tensor &a,
   }
 
   return core::Status::OK;
+}
+
+// 累加变体: result += a @ b。
+// CPU 上无法完全免临时: 乘积需先算出再 elementwise 加回 result,
+// 否则 result 会同时作为读源与写目标被覆盖。
+core::Status MatMulAccumulate(const core::Context &ctx, const core::Tensor &a,
+                              const core::Tensor &b, core::Tensor &result) {
+  (void)ctx;
+
+  if (a.ndim() != 2 || b.ndim() != 2) {
+    return core::Status::INVALID_ARGUMENT;
+  }
+  if (a.shape()[1] != b.shape()[0]) {
+    return core::Status::SHAPE_MISMATCH;
+  }
+  if (a.dtype() != b.dtype() || result.dtype() != a.dtype()) {
+    return core::Status::UNSUPPORTED_TYPE;
+  }
+  if (result.shape()[0] != a.shape()[0] || result.shape()[1] != b.shape()[1]) {
+    return core::Status::SHAPE_MISMATCH;
+  }
+
+  core::Tensor prod(a.dtype(),
+                    std::vector<size_t>{a.shape()[0], b.shape()[1]},
+                    a.device());
+  core::Status st = MatMul(ctx, a, b, prod);
+  if (st != core::Status::OK) return st;
+  return AddInto(ctx, result, prod, result);
 }
 
 }  // namespace cpu
