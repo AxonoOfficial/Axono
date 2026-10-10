@@ -78,7 +78,7 @@ core::Status DispatchRelu(const core::Tensor& input, core::Tensor& output) {
   }
   if (err != cudaSuccess) return core::Status::DEVICE_ERROR;
 
-  err = axono::core::cuda::IsCapturing() ? cudaSuccess : cudaDeviceSynchronize();
+  err = axono::core::cuda::MaybeSync();
   return (err == cudaSuccess) ? core::Status::OK : core::Status::DEVICE_ERROR;
 }
 
@@ -111,7 +111,7 @@ core::Status DispatchReluInplace(core::Tensor& tensor) {
   }
   if (err != cudaSuccess) return core::Status::DEVICE_ERROR;
 
-  err = axono::core::cuda::IsCapturing() ? cudaSuccess : cudaDeviceSynchronize();
+  err = axono::core::cuda::MaybeSync();
   return (err == cudaSuccess) ? core::Status::OK : core::Status::DEVICE_ERROR;
 }
 

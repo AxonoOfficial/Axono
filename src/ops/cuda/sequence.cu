@@ -23,9 +23,53 @@ inline cudaStream_t Stream() { return core::cuda::AxonoCurrentStream(); }
 
 inline core::Status Finish() {
   if (cudaGetLastError() != cudaSuccess) return core::Status::DEVICE_ERROR;
-  if (core::cuda::IsCapturing()) return core::Status::OK;
-  return cudaDeviceSynchronize() == cudaSuccess ? core::Status::OK
-                                                : core::Status::INTERNAL_ERROR;
+  // 异步模式下仅检查 launch 错误 (捕获中同样跳过); 同步交给 D2H 读回。
+  return core::cuda::MaybeSync() == cudaSuccess ? core::Status::OK
+                                               : core::Status::INTERNAL_ERROR;
+}
+
+// ---- block 内 max / sum 归约 (warp shuffle) ----
+template <typename T>
+__device__ inline T BlockReduceMax(T v) {
+  for (int off = 16; off > 0; off >>= 1) {
+    const T o = __shfl_down_sync(0xffffffff, v, off);
+    if (o > v) v = o;
+  }
+  __shared__ T warp[32];
+  const int lane = threadIdx.x & 31;
+  const int wid = threadIdx.x >> 5;
+  if (lane == 0) warp[wid] = v;
+  __syncthreads();
+  const int nw = (blockDim.x + 31) >> 5;
+  if (threadIdx.x < 32) {
+    v = threadIdx.x < nw ? warp[threadIdx.x] : T(-3.4e38);
+    for (int off = 16; off > 0; off >>= 1) {
+      const T o = __shfl_down_sync(0xffffffff, v, off);
+      if (o > v) v = o;
+    }
+    if (threadIdx.x == 0) warp[0] = v;
+  }
+  __syncthreads();
+  return warp[0];
+}
+
+template <typename T>
+__device__ inline T BlockReduceSum(T v) {
+  for (int off = 16; off > 0; off >>= 1) v += __shfl_down_sync(0xffffffff, v, off);
+  __shared__ T warp[32];
+  const int lane = threadIdx.x & 31;
+  const int wid = threadIdx.x >> 5;
+  if (lane == 0) warp[wid] = v;
+  __syncthreads();
+  const int nw = (blockDim.x + 31) >> 5;
+  if (threadIdx.x < 32) {
+    v = threadIdx.x < nw ? warp[threadIdx.x] : T(0);
+    for (int off = 16; off > 0; off >>= 1)
+      v += __shfl_down_sync(0xffffffff, v, off);
+    if (threadIdx.x == 0) warp[0] = v;
+  }
+  __syncthreads();
+  return warp[0];
 }
 
 __global__ void EmbeddingKernel(const int64_t *ids, const float *table,
@@ -56,7 +100,8 @@ __global__ void RopeKernel(float *x, const int64_t *pos, size_t rows,
   }
 }
 
-// SDPA: 每 (t, head) 一个线程块, block 内对 kv 求分数 + softmax + 加权 V
+// SDPA: 每 (t, head) 一个线程块, block 内并行: 分数 (warp 分片点积) +
+// block 归约 max/sum + 加权 V。d == 4 的倍数时用 float4 向量化访存。
 __global__ void SdpaKernel(const float *q, const float *k, const float *v,
                            float *out, size_t sq, size_t hq, size_t skv,
                            size_t hkv, size_t d, int causal) {
@@ -72,28 +117,97 @@ __global__ void SdpaKernel(const float *q, const float *k, const float *v,
   size_t kv_end = skv;
   if (causal && skv >= t + 1) kv_end = t + 1;
 
-  // 单线程算分数+softmax (解码场景 kv 短, 简单可靠; prefill 也正确)
-  if (threadIdx.x == 0) {
-    extern __shared__ float scores[];
-    float mx = -3.4e38f;
-    for (size_t s = 0; s < kv_end; ++s) {
-      const float *kr = k + (s * hkv + hk) * d;
-      float acc = 0.0f;
-      for (size_t i = 0; i < d; ++i) acc += qr[i] * kr[i];
-      scores[s] = acc * scale;
-      if (scores[s] > mx) mx = scores[s];
+  extern __shared__ float scores[];
+  // 1) 分数: 每 warp 分片 kv, block 内并行点积
+  for (size_t s = threadIdx.x; s < kv_end; s += blockDim.x) {
+    const float *kr = k + (s * hkv + hk) * d;
+    float acc = 0.0f;
+    size_t i = 0;
+    if (d % 4 == 0) {
+      const float4 *q4 = reinterpret_cast<const float4 *>(qr);
+      const float4 *k4 = reinterpret_cast<const float4 *>(kr);
+      for (; i < d; i += 4) {
+        const float4 a = q4[i / 4];
+        const float4 b = k4[i / 4];
+        acc += a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+      }
+    } else {
+      for (; i < d; ++i) acc += qr[i] * kr[i];
     }
-    float sum = 0.0f;
-    for (size_t s = 0; s < kv_end; ++s) {
-      scores[s] = expf(scores[s] - mx);
-      sum += scores[s];
-    }
-    for (size_t i = 0; i < d; ++i) outr[i] = 0.0f;
-    for (size_t s = 0; s < kv_end; ++s) {
-      const float p = scores[s] / sum;
-      const float *vr = v + (s * hkv + hk) * d;
-      for (size_t i = 0; i < d; ++i) outr[i] += p * vr[i];
-    }
+    scores[s] = acc * scale;
+  }
+  __syncthreads();
+
+  // 2) 行最大 (block 归约)
+  float local_max = -3.4e38f;
+  for (size_t s = threadIdx.x; s < kv_end; s += blockDim.x)
+    local_max = scores[s] > local_max ? scores[s] : local_max;
+  const float mx = BlockReduceMax<float>(local_max);
+
+  // 3) exp + sum
+  float local_sum = 0.0f;
+  for (size_t s = threadIdx.x; s < kv_end; s += blockDim.x) {
+    scores[s] = expf(scores[s] - mx);
+    local_sum += scores[s];
+  }
+  const float sum = BlockReduceSum<float>(local_sum);
+  const float inv = 1.0f / sum;
+
+  // 4) 加权 V: 每 warp 分片输出维
+  for (size_t i = threadIdx.x; i < d; i += blockDim.x) {
+    float acc = 0.0f;
+    for (size_t s = 0; s < kv_end; ++s)
+      acc += scores[s] * v[(s * hkv + hk) * d + i];
+    outr[i] = acc * inv;
+  }
+}
+
+// RoPE 变体 1: (cos, sin) 直接旋转 — 每 (r,h) 一线程, rotate_half 配对
+__global__ void RopeCosSinKernel(const float *x, const float *cos,
+                                 const float *sin, float *out, size_t rows,
+                                 size_t heads, size_t dim) {
+  const size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const size_t total = rows * heads;
+  if (idx >= total) return;
+  const size_t r = idx / heads;
+  const float *src = x + idx * dim;
+  float *dst = out + idx * dim;
+  const float *cr = cos + r * dim;
+  const float *sr = sin + r * dim;
+  const size_t half = dim / 2;
+  for (size_t i = 0; i < half; ++i) {
+    const float a = src[i], b = src[i + half];
+    dst[i] = a * cr[i] - b * sr[i];
+    dst[i + half] = b * cr[i + half] + a * sr[i + half];
+  }
+}
+
+// RoPE 变体 2: 3D 位置 (T/H/W) 交错 stride-3 频率重组 — 每 (r,h) 一线程
+__global__ void RopeThdKernel(const float *x, const int64_t *pos,
+                              const float *inv_freq, float *out, size_t rows,
+                              size_t heads, size_t dim, size_t h_lim,
+                              size_t w_lim) {
+  const size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const size_t total = rows * heads;
+  if (idx >= total) return;
+  const size_t r = idx / heads;
+  const float *src = x + idx * dim;
+  float *dst = out + idx * dim;
+  const float pt = static_cast<float>(pos[r]);
+  const float ph = static_cast<float>(pos[rows + r]);
+  const float pw = static_cast<float>(pos[2 * rows + r]);
+  const size_t half = dim / 2;
+  for (size_t i = 0; i < half; ++i) {
+    const float f = inv_freq[i];
+    float angle = pt * f;
+    if (i % 3 == 1 && i < h_lim)
+      angle = ph * f;
+    else if (i % 3 == 2 && i < w_lim)
+      angle = pw * f;
+    const float c = cosf(angle), s = sinf(angle);
+    const float a = src[i], b = src[i + half];
+    dst[i] = a * c - b * s;
+    dst[i + half] = b * c + a * s;
   }
 }
 
@@ -126,6 +240,23 @@ __global__ void SliceLastDimKernel(const char *x, char *out, size_t outer,
   const size_t c = idx % len;
   for (size_t e = 0; e < elem; ++e)
     out[idx * elem + e] = x[(o * src_cols + start + c) * elem + e];
+}
+
+// 通用 strided slice (非 last 维): 输出按 (outer, length, row) 展平, 每
+// 元素定位源位置。替换原 "逐 outer cudaMemcpyAsync" (outer 大时 launch 开销
+// 主导)。线程按元素并行, 内层按 elem 字节拷贝 (elem<=8)。
+__global__ void SliceStridedKernel(const char *x, char *out, size_t total_elems,
+                                   size_t length, size_t row, size_t src_len,
+                                   size_t start, unsigned elem) {
+  const size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= total_elems) return;
+  const size_t r = idx % row;
+  const size_t t = idx / row;
+  const size_t li = t % length;
+  const size_t o = t / length;
+  const char *sp = x + ((o * src_len + start + li) * row + r) * elem;
+  char *dp = out + idx * elem;
+  for (unsigned e = 0; e < elem; ++e) dp[e] = sp[e];
 }
 
 __global__ void ArgmaxKernel(const float *x, int64_t *out, size_t rows,
@@ -210,6 +341,61 @@ core::Status Rope(const core::Context &ctx, const core::Tensor &x,
   return Finish();
 }
 
+core::Status RopeWithCosSin(const core::Context &ctx, const core::Tensor &x,
+                            const core::Tensor &cos, const core::Tensor &sin,
+                            core::Tensor &result) {
+  (void)ctx;
+  if (x.ndim() != 3 || x.dtype() != core::DataType::FLOAT32)
+    return core::Status::UNSUPPORTED_TYPE;
+  const size_t rows = x.shape()[0];
+  const size_t heads = x.shape()[1];
+  const size_t dim = x.shape()[2];
+  if (dim % 2 != 0) return core::Status::INVALID_ARGUMENT;
+  if (cos.ndim() != 2 || sin.ndim() != 2 || cos.shape()[0] != rows ||
+      cos.shape()[1] != dim || sin.shape()[0] != rows ||
+      sin.shape()[1] != dim || cos.dtype() != core::DataType::FLOAT32 ||
+      sin.dtype() != core::DataType::FLOAT32)
+    return core::Status::SHAPE_MISMATCH;
+  core::Status st = result.Resize(x.shape());
+  if (st != core::Status::OK) return st;
+  const size_t total = rows * heads;
+  RopeCosSinKernel<<<static_cast<unsigned>((total + kBlock - 1) / kBlock),
+                     kBlock, 0, Stream()>>>(
+      x.data<float>(), cos.data<float>(), sin.data<float>(),
+      result.data<float>(), rows, heads, dim);
+  return Finish();
+}
+
+core::Status RopeThd(const core::Context &ctx, const core::Tensor &x,
+                     const core::Tensor &pos, const core::Tensor &inv_freq,
+                     int t_sec, int h_sec, int w_sec, core::Tensor &result) {
+  (void)ctx;
+  (void)t_sec;
+  if (x.ndim() != 3 || x.dtype() != core::DataType::FLOAT32)
+    return core::Status::UNSUPPORTED_TYPE;
+  const size_t rows = x.shape()[0];
+  const size_t heads = x.shape()[1];
+  const size_t dim = x.shape()[2];
+  if (dim % 2 != 0) return core::Status::INVALID_ARGUMENT;
+  const size_t half = dim / 2;
+  if (pos.ndim() != 2 || pos.shape()[0] != 3 || pos.shape()[1] != rows ||
+      pos.dtype() != core::DataType::INT64)
+    return core::Status::SHAPE_MISMATCH;
+  if (inv_freq.ndim() != 1 || inv_freq.shape()[0] != half ||
+      inv_freq.dtype() != core::DataType::FLOAT32)
+    return core::Status::SHAPE_MISMATCH;
+  core::Status st = result.Resize(x.shape());
+  if (st != core::Status::OK) return st;
+  const size_t total = rows * heads;
+  const size_t h_lim = static_cast<size_t>(h_sec) * 3;
+  const size_t w_lim = static_cast<size_t>(w_sec) * 3;
+  RopeThdKernel<<<static_cast<unsigned>((total + kBlock - 1) / kBlock),
+                  kBlock, 0, Stream()>>>(
+      x.data<float>(), pos.data<int64_t>(), inv_freq.data<float>(),
+      result.data<float>(), rows, heads, dim, h_lim, w_lim);
+  return Finish();
+}
+
 core::Status ScaledDotProductAttention(const core::Context &ctx,
                                        const core::Tensor &q,
                                        const core::Tensor &k,
@@ -227,7 +413,7 @@ core::Status ScaledDotProductAttention(const core::Context &ctx,
   core::Status st = result.Resize({sq, hq, d});
   if (st != core::Status::OK) return st;
   dim3 grid(static_cast<unsigned>(sq), static_cast<unsigned>(hq));
-  SdpaKernel<<<grid, 1, skv * sizeof(float), Stream()>>>(
+  SdpaKernel<<<grid, kBlock, skv * sizeof(float), Stream()>>>(
       q.data<float>(), k.data<float>(), v.data<float>(),
       result.data<float>(), sq, hq, skv, hkv, d, is_causal ? 1 : 0);
   return Finish();
@@ -310,13 +496,14 @@ core::Status Slice(const core::Context &ctx, const core::Tensor &x,
     const size_t seg = row * elem;
     const char *xp = static_cast<const char *>(x.data());
     char *rp = static_cast<char *>(result.data());
-    for (size_t o = 0; o < outer; ++o) {
-      if (cudaMemcpyAsync(rp, xp + ((o * src_len) + start) * seg,
-                          length * seg, cudaMemcpyDeviceToDevice, Stream()) !=
-          cudaSuccess)
-        return core::Status::DEVICE_ERROR;
-      rp += length * seg;
-    }
+    // 单 kernel 元素级 strided 拷贝 (替换逐 outer cudaMemcpyAsync — 每段一次
+    // launch 在 outer 大时 (如 qkv 拆分 outer=256) 开销 ~1ms)
+    const size_t total_elems = outer * length * row;
+    const unsigned grid1 =
+        static_cast<unsigned>((total_elems + 255) / 256);
+    SliceStridedKernel<<<grid1, 256, 0, Stream()>>>(
+        xp, rp, total_elems, length, row, src_len, start,
+        static_cast<unsigned>(elem));
   }
   return Finish();
 }

@@ -18,6 +18,18 @@ AXONO_EXPORT core::Status Rope(const core::Context &ctx,
                                const core::Tensor &x,
                                const core::Tensor &pos_ids, float theta,
                                core::Tensor &result);
+// 语义同 cpu 侧 RopeWithCosSin / RopeThd。
+AXONO_EXPORT core::Status RopeWithCosSin(const core::Context &ctx,
+                                         const core::Tensor &x,
+                                         const core::Tensor &cos,
+                                         const core::Tensor &sin,
+                                         core::Tensor &result);
+AXONO_EXPORT core::Status RopeThd(const core::Context &ctx,
+                                  const core::Tensor &x,
+                                  const core::Tensor &pos,
+                                  const core::Tensor &inv_freq,
+                                  int t_sec, int h_sec, int w_sec,
+                                  core::Tensor &result);
 AXONO_EXPORT core::Status ScaledDotProductAttention(
     const core::Context &ctx, const core::Tensor &q, const core::Tensor &k,
     const core::Tensor &v, bool is_causal, core::Tensor &result);

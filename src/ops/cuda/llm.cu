@@ -23,9 +23,9 @@ inline cudaStream_t Stream() { return core::cuda::AxonoCurrentStream(); }
 
 inline core::Status Finish() {
   if (cudaGetLastError() != cudaSuccess) return core::Status::DEVICE_ERROR;
-  if (core::cuda::IsCapturing()) return core::Status::OK;
-  return cudaDeviceSynchronize() == cudaSuccess ? core::Status::OK
-                                                : core::Status::INTERNAL_ERROR;
+  // 异步模式下仅检查 launch 错误 (捕获中同样跳过); 同步交给 D2H 读回。
+  return core::cuda::MaybeSync() == cudaSuccess ? core::Status::OK
+                                               : core::Status::INTERNAL_ERROR;
 }
 
 // ---- block 内 max / sum 归约 ----
@@ -169,6 +169,24 @@ __global__ void GeluKernelD(const double *x, double *out, size_t n) {
     out[i] = 0.5 * x[i] * (1.0 + erf(x[i] * 0.70710678118654752440));
 }
 
+__global__ void GeluTanhKernel(const float *x, float *out, size_t n) {
+  const size_t i = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (i < n) {
+    const float v = x[i];
+    const float inner = 0.7978845608028654f * (v + 0.044715f * v * v * v);
+    out[i] = 0.5f * v * (1.0f + tanhf(inner));
+  }
+}
+
+__global__ void GeluTanhKernelD(const double *x, double *out, size_t n) {
+  const size_t i = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (i < n) {
+    const double v = x[i];
+    const double inner = 0.7978845608028654 * (v + 0.044715 * v * v * v);
+    out[i] = 0.5 * v * (1.0 + tanh(inner));
+  }
+}
+
 __global__ void SiluKernel(const float *x, float *out, size_t n) {
   const size_t i = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (i < n) out[i] = x[i] / (1.0f + expf(-x[i]));
@@ -242,6 +260,26 @@ core::Status Gelu(const core::Context &ctx, const core::Tensor &x,
   else if (x.dtype() == core::DataType::FLOAT64)
     GeluKernelD<<<grid, kBlock, 0, Stream()>>>(x.data<double>(),
                                                result.data<double>(), n);
+  else
+    return core::Status::UNSUPPORTED_TYPE;
+  return Finish();
+}
+
+core::Status GeluTanh(const core::Context &ctx, const core::Tensor &x,
+                      core::Tensor &result) {
+  (void)ctx;
+  if (x.num_elements() == 0) return core::Status::INVALID_ARGUMENT;
+  core::Status st = result.Resize(x.shape());
+  if (st != core::Status::OK) return st;
+  if (result.dtype() != x.dtype()) return core::Status::UNSUPPORTED_TYPE;
+  const size_t n = x.num_elements();
+  const dim3 grid(static_cast<unsigned>((n + kBlock - 1) / kBlock));
+  if (x.dtype() == core::DataType::FLOAT32)
+    GeluTanhKernel<<<grid, kBlock, 0, Stream()>>>(x.data<float>(),
+                                                  result.data<float>(), n);
+  else if (x.dtype() == core::DataType::FLOAT64)
+    GeluTanhKernelD<<<grid, kBlock, 0, Stream()>>>(x.data<double>(),
+                                                   result.data<double>(), n);
   else
     return core::Status::UNSUPPORTED_TYPE;
   return Finish();

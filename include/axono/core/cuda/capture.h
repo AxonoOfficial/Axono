@@ -19,6 +19,19 @@ namespace cuda {
 AXONO_EXPORT bool IsCapturing();
 AXONO_EXPORT void SetCapturing(bool capturing);
 
+// 异步执行模式 (默认开): 非捕获路径的算子也不再 cudaDeviceSynchronize,
+// 正确性由 default-stream 顺序 + D2H cudaMemcpy 隐式同步保证 (torch 同款
+// 语义)。设为 false 可恢复旧行为 (每算子全设备同步, 便于调试)。
+AXONO_EXPORT void SetAsyncMode(bool enable);
+AXONO_EXPORT bool AsyncMode();
+
+// 统一同步点: 仅在既非捕获又未开异步模式时真正 deviceSync。
+// 返回 cudaSuccess 或错误码, 供算子入口返回 Status。
+inline cudaError_t MaybeSync() {
+  if (!IsCapturing() && !AsyncMode()) return cudaDeviceSynchronize();
+  return cudaSuccess;
+}
+
 // 捕获期间的指针释放策略:
 //   - 捕获中: 挂到延迟队列 (不入图 free 节点) —— 否则同一图 exec
 //     的第二次 cudaGraphLaunch 会因 free/alloc 节点混排报

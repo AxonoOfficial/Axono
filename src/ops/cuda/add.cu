@@ -75,7 +75,7 @@ core::Status DispatchAdd(const core::Tensor &a, const core::Tensor &b, core::Ten
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
+  axono::core::cuda::MaybeSync();
   return core::Status::OK;
 }
 core::Status Add(const core::Context &ctx, const core::Tensor &a, const core::Tensor &b,
@@ -162,7 +162,7 @@ core::Status DispatchAddScalar(const core::Tensor &a, void *scalar,
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
+  axono::core::cuda::MaybeSync();
   return core::Status::OK;
 }
 

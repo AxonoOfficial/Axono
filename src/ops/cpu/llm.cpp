@@ -151,6 +151,40 @@ core::Status Gelu(const core::Context &ctx, const core::Tensor &x,
   return core::Status::OK;
 }
 
+// GELU (tanh 近似式): 0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715 x^3)))。
+core::Status GeluTanh(const core::Context &ctx, const core::Tensor &x,
+                      core::Tensor &result) {
+  (void)ctx;
+  size_t rows = 0, cols = 0;
+  core::Status st = LastDimCheck(x, result, rows, cols);
+  if (st != core::Status::OK) return st;
+  const size_t n = x.num_elements();
+  if (x.dtype() == core::DataType::FLOAT32) {
+    const float *px = x.data<float>();
+    float *po = result.data<float>();
+    constexpr float kC = 0.7978845608028654f;  // sqrt(2/pi)
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < n; ++i) {
+      const float v = px[i];
+      const float inner = kC * (v + 0.044715f * v * v * v);
+      po[i] = 0.5f * v * (1.0f + std::tanh(inner));
+    }
+  } else if (x.dtype() == core::DataType::FLOAT64) {
+    const double *px = x.data<double>();
+    double *po = result.data<double>();
+    constexpr double kC = 0.7978845608028654;
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < n; ++i) {
+      const double v = px[i];
+      const double inner = kC * (v + 0.044715 * v * v * v);
+      po[i] = 0.5 * v * (1.0 + std::tanh(inner));
+    }
+  } else {
+    return core::Status::UNSUPPORTED_TYPE;
+  }
+  return core::Status::OK;
+}
+
 core::Status Silu(const core::Context &ctx, const core::Tensor &x,
                   core::Tensor &result) {
   (void)ctx;

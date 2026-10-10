@@ -690,6 +690,25 @@ NB_MODULE(libaxono, m) {
         nb::arg("x"), nb::sig("def log_softmax(x) -> Tensor"));
   m.def("gelu", [&](const core::Tensor &x) { return llm_unary(x, "gelu"); },
         nb::arg("x"), nb::sig("def gelu(x) -> Tensor"));
+  m.def("gelu_tanh",
+        [&](const core::Tensor &x) {
+          core::Tensor result(x.dtype(), x.shape(), x.device());
+          core::Status st;
+          if (x.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::GeluTanh(core::Context(), x, result);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::GeluTanh(core::Context(), x, result);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("gelu_tanh 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return result;
+        },
+        nb::arg("x"), nb::sig("def gelu_tanh(x) -> Tensor"));
   m.def("silu", [&](const core::Tensor &x) { return llm_unary(x, "silu"); },
         nb::arg("x"), nb::sig("def silu(x) -> Tensor"));
 
@@ -796,6 +815,53 @@ NB_MODULE(libaxono, m) {
         },
         nb::arg("x"), nb::arg("pos_ids"), nb::arg("theta"),
         nb::sig("def rope(x, pos_ids, theta) -> Tensor"));
+
+  m.def("rope_with_cos_sin",
+        [&](const core::Tensor &x, const core::Tensor &cos,
+            const core::Tensor &sin) {
+          core::Tensor result(x.dtype(), x.shape(), x.device());
+          core::Status st;
+          if (x.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::RopeWithCosSin(core::Context(), x, cos, sin, result);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::RopeWithCosSin(core::Context(), x, cos, sin, result);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("rope_with_cos_sin 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return result;
+        },
+        nb::arg("x"), nb::arg("cos"), nb::arg("sin"),
+        nb::sig("def rope_with_cos_sin(x, cos, sin) -> Tensor"));
+
+  m.def("rope_thd",
+        [&](const core::Tensor &x, const core::Tensor &pos,
+            const core::Tensor &inv_freq, int t_sec, int h_sec, int w_sec) {
+          core::Tensor result(x.dtype(), x.shape(), x.device());
+          core::Status st;
+          if (x.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::RopeThd(core::Context(), x, pos, inv_freq, t_sec,
+                                    h_sec, w_sec, result);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::RopeThd(core::Context(), x, pos, inv_freq, t_sec,
+                                   h_sec, w_sec, result);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("rope_thd 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return result;
+        },
+        nb::arg("x"), nb::arg("pos"), nb::arg("inv_freq"), nb::arg("t_sec"),
+        nb::arg("h_sec"), nb::arg("w_sec"),
+        nb::sig("def rope_thd(x, pos, inv_freq, t_sec, h_sec, w_sec) -> Tensor"));
 
   m.def("scaled_dot_product_attention",
         [&](const core::Tensor &q, const core::Tensor &k,

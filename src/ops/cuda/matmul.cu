@@ -109,8 +109,7 @@ core::Status Int32MatMul(const core::Tensor &a, const core::Tensor &b,
   if (err != cudaSuccess) {
     return core::Status::INTERNAL_ERROR;
   }
-  if (core::cuda::IsCapturing()) return core::Status::OK;
-  return cudaDeviceSynchronize() == cudaSuccess ? core::Status::OK
+  return core::cuda::MaybeSync() == cudaSuccess ? core::Status::OK
                                                 : core::Status::INTERNAL_ERROR;
 }
 
@@ -187,7 +186,7 @@ core::Status MatMul(const core::Context &ctx, const core::Tensor &a,
   }
 
   // Graph 捕获期间禁止同步 (回放后由绑定层统一同步)
-  if (!core::cuda::IsCapturing() && cudaDeviceSynchronize() != cudaSuccess) {
+  if (core::cuda::MaybeSync() != cudaSuccess) {
     return core::Status::INTERNAL_ERROR;
   }
   return core::Status::OK;
@@ -255,7 +254,7 @@ core::Status MatMulAccumulate(const core::Context &ctx, const core::Tensor &a,
     return core::Status::INTERNAL_ERROR;
   }
 
-  if (!core::cuda::IsCapturing() && cudaDeviceSynchronize() != cudaSuccess) {
+  if (core::cuda::MaybeSync() != cudaSuccess) {
     return core::Status::INTERNAL_ERROR;
   }
   return core::Status::OK;

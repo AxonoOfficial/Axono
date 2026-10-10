@@ -145,7 +145,7 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
     return core::Status::INTERNAL_ERROR;
   }
 
-  if (!core::cuda::IsCapturing() && cudaDeviceSynchronize() != cudaSuccess)
+  if (core::cuda::MaybeSync() != cudaSuccess)
     return core::Status::INTERNAL_ERROR;
   return core::Status::OK;
 }

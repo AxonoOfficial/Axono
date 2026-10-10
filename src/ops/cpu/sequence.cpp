@@ -90,6 +90,102 @@ core::Status Rope(const core::Context &ctx, const core::Tensor &x,
   return core::Status::OK;
 }
 
+// RoPE 变体 1: 直接 (cos, sin) 旋转 (M-RoPE / 3D 位置)。
+core::Status RopeWithCosSin(const core::Context &ctx, const core::Tensor &x,
+                            const core::Tensor &cos, const core::Tensor &sin,
+                            core::Tensor &result) {
+  (void)ctx;
+  if (x.ndim() != 3 || x.dtype() != core::DataType::FLOAT32)
+    return core::Status::UNSUPPORTED_TYPE;
+  const size_t rows = x.shape()[0];
+  const size_t heads = x.shape()[1];
+  const size_t dim = x.shape()[2];
+  if (dim % 2 != 0) return core::Status::INVALID_ARGUMENT;
+  if (cos.ndim() != 2 || sin.ndim() != 2 || cos.shape()[0] != rows ||
+      cos.shape()[1] != dim || sin.shape()[0] != rows ||
+      sin.shape()[1] != dim || cos.dtype() != core::DataType::FLOAT32 ||
+      sin.dtype() != core::DataType::FLOAT32)
+    return core::Status::SHAPE_MISMATCH;
+  core::Status st = result.Resize(x.shape());
+  if (st != core::Status::OK) return st;
+
+  const float *xp = x.data<float>();
+  float *rp = result.data<float>();
+  const float *cp = cos.data<float>();
+  const float *sp = sin.data<float>();
+  const size_t half = dim / 2;
+  // HF rotate_half 约定: 配对 (i, i+half), i in [0, half)。
+#pragma omp parallel for collapse(2) schedule(static)
+  for (size_t r = 0; r < rows; ++r) {
+    for (size_t h = 0; h < heads; ++h) {
+      const float *src = xp + (r * heads + h) * dim;
+      float *dst = rp + (r * heads + h) * dim;
+      const float *cr = cp + r * dim;
+      const float *sr = sp + r * dim;
+      for (size_t i = 0; i < half; ++i) {
+        const float a = src[i], b = src[i + half];
+        dst[i] = a * cr[i] - b * sr[i];
+        dst[i + half] = b * cr[i + half] + a * sr[i + half];
+      }
+    }
+  }
+  return core::Status::OK;
+}
+
+// RoPE 变体 2: 3D 位置 (T/H/W) 交错 (stride-3) 频率重组。
+// 逐 (r,h,i): freq_i 取 T 基础, i%3==1 且 i<3*h_sec 用 H, i%3==2 且 i<3*w_sec 用 W。
+core::Status RopeThd(const core::Context &ctx, const core::Tensor &x,
+                     const core::Tensor &pos, const core::Tensor &inv_freq,
+                     int t_sec, int h_sec, int w_sec, core::Tensor &result) {
+  (void)ctx;
+  if (x.ndim() != 3 || x.dtype() != core::DataType::FLOAT32)
+    return core::Status::UNSUPPORTED_TYPE;
+  const size_t rows = x.shape()[0];
+  const size_t heads = x.shape()[1];
+  const size_t dim = x.shape()[2];
+  if (dim % 2 != 0) return core::Status::INVALID_ARGUMENT;
+  const size_t half = dim / 2;
+  if (pos.ndim() != 2 || pos.shape()[0] != 3 || pos.shape()[1] != rows ||
+      pos.dtype() != core::DataType::INT64)
+    return core::Status::SHAPE_MISMATCH;
+  if (inv_freq.ndim() != 1 || inv_freq.shape()[0] != half ||
+      inv_freq.dtype() != core::DataType::FLOAT32)
+    return core::Status::SHAPE_MISMATCH;
+  (void)t_sec;
+  core::Status st = result.Resize(x.shape());
+  if (st != core::Status::OK) return st;
+
+  const float *xp = x.data<float>();
+  float *rp = result.data<float>();
+  const int64_t *pp = pos.data<int64_t>();
+  const float *fp = inv_freq.data<float>();
+  const size_t h_lim = static_cast<size_t>(h_sec) * 3;
+  const size_t w_lim = static_cast<size_t>(w_sec) * 3;
+#pragma omp parallel for collapse(2) schedule(static)
+  for (size_t r = 0; r < rows; ++r) {
+    for (size_t h = 0; h < heads; ++h) {
+      const float *src = xp + (r * heads + h) * dim;
+      float *dst = rp + (r * heads + h) * dim;
+      const float pt = static_cast<float>(pp[r]);
+      const float ph = static_cast<float>(pp[rows + r]);
+      const float pw = static_cast<float>(pp[2 * rows + r]);
+      for (size_t i = 0; i < half; ++i) {
+        const float f = fp[i];
+        float angle = pt * f;
+        if (i % 3 == 1 && i < h_lim)
+          angle = ph * f;
+        else if (i % 3 == 2 && i < w_lim)
+          angle = pw * f;
+        const float c = std::cos(angle), s = std::sin(angle);
+        const float a = src[i], b = src[i + half];
+        dst[i] = a * c - b * s;
+        dst[i + half] = b * c + a * s;
+      }
+    }
+  }
+  return core::Status::OK;
+}
+
 core::Status ScaledDotProductAttention(const core::Context &ctx,
                                        const core::Tensor &q,
                                        const core::Tensor &k,

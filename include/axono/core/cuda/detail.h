@@ -26,7 +26,10 @@ void cuda_memcpy_h2d(void *dst, const void *src, size_t bytes);
 
 std::shared_ptr<void> make_shared_cuda_memory(size_t bytes);
 
-std::shared_ptr<void> deep_copy_cuda_memory(const void *src, size_t bytes);
+std::shared_ptr<void> deep_copy_cuda_memory(const void* src, size_t bytes);
+
+// 清空设备内存缓存池 (释放所有缓存块回 CUDA driver)
+void ClearDeviceCache();
 
 }  // namespace detail
 }  // namespace cuda

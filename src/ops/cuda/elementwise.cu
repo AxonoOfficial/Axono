@@ -170,11 +170,9 @@ inline dim3 LaunchConfig(size_t n) {
   return dim3((n + block - 1) / block);
 }
 
-// 捕获期间跳过同步 (kernel 已提交到捕获流)
+// 捕获期间跳过同步; 异步模式 (默认) 下非捕获路径同样跳过 (D2H 读回隐式同步)
 inline core::Status SyncGuard() {
-  if (!core::cuda::IsCapturing()) {
-    if (cudaDeviceSynchronize() != cudaSuccess) return core::Status::DEVICE_ERROR;
-  }
+  if (core::cuda::MaybeSync() != cudaSuccess) return core::Status::DEVICE_ERROR;
   return core::Status::OK;
 }
 
