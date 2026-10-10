@@ -19,6 +19,10 @@ AXONO_EXPORT core::Status LogSoftmax(const core::Context &ctx,
                                      core::Tensor &result);
 AXONO_EXPORT core::Status Gelu(const core::Context &ctx,
                                const core::Tensor &x, core::Tensor &result);
+// GELU (tanh 近似式): 0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715 x^3)))。
+AXONO_EXPORT core::Status GeluTanh(const core::Context &ctx,
+                                   const core::Tensor &x,
+                                   core::Tensor &result);
 AXONO_EXPORT core::Status Silu(const core::Context &ctx,
                                const core::Tensor &x, core::Tensor &result);
 // weight/bias 可为空张量表示无仿射。

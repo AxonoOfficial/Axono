@@ -13,6 +13,7 @@
 Axono - High Performance Computing Library
 """
 
+from . import nn  # noqa: E402  — from axono import nn / nn.Linear 风格
 from .core import (
     DataType,
     Status,
@@ -43,6 +44,7 @@ from .core.ops import (
     exp,
     floor,
     gelu,
+    gelu_tanh,
     layer_norm,
     linear,
     linear_nobias,
@@ -54,6 +56,8 @@ from .core.ops import (
     relu_,
     rms_norm,
     rope,
+    rope_thd,
+    rope_with_cos_sin,
     round,
     rsqrt,
     scaled_dot_product_attention,
@@ -107,6 +111,7 @@ __all__ = [
     "softmax",
     "log_softmax",
     "gelu",
+    "gelu_tanh",
     "silu",
     "layer_norm",
     "rms_norm",
@@ -114,6 +119,8 @@ __all__ = [
     "linear_nobias",
     "embedding",
     "rope",
+    "rope_with_cos_sin",
+    "rope_thd",
     "scaled_dot_product_attention",
     "concat",
     "slice_",
@@ -129,6 +136,7 @@ __all__ = [
     "get_matmul_backend",
     "CUDAGraph",
     "cuda_graph",
+    "nn",
     "welcome",
 ]
 

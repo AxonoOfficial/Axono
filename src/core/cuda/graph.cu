@@ -1,5 +1,6 @@
 // Axono v0.2 — CUDA 当前流管理实现 + graph.cu 合并
 #include <cuda_runtime.h>
+#include <atomic>
 
 #include <cstdio>
 #include <mutex>
@@ -19,6 +20,9 @@ namespace cuda {
 namespace {
 thread_local bool t_capturing = false;
 thread_local cudaStream_t t_capture_stream = nullptr;
+// 异步执行模式 (进程级, 默认开): 非捕获路径算子不逐个 deviceSync。
+// 见 capture.h 注释。
+std::atomic<bool> g_async_mode{true};
 
 // 捕获期间挂起的待释放指针 (分配流, 指针); 捕获结束后统一释放。
 // 全局 (非线程局部): 图输出张量可能在别的线程析构。
@@ -28,6 +32,9 @@ std::vector<std::pair<cudaStream_t, void*>> g_deferred_frees;
 
 bool IsCapturing() { return t_capturing; }
 void SetCapturing(bool v) { t_capturing = v; }
+
+void SetAsyncMode(bool enable) { g_async_mode.store(enable); }
+bool AsyncMode() { return g_async_mode.load(); }
 
 bool DeferredFreeAsync(void* ptr, cudaStream_t alloc_stream) {
   if (t_capturing) {

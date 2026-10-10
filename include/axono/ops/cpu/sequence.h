@@ -23,6 +23,26 @@ AXONO_EXPORT core::Status Rope(const core::Context &ctx,
                                const core::Tensor &pos_ids, float theta,
                                core::Tensor &result);
 
+// RoPE 变体 1: 直接用 (cos, sin) 旋转 (M-RoPE / 3D 位置)。
+//   x: (seq, n_heads, head_dim) FLOAT32; cos/sin: (seq, head_dim) (广播到 heads)。
+//   旋转按 HF rotate_half 约定: out[i] = x[i]*cos[i] - x[i+half]*sin[i],
+//   out[i+half] = x[i+half]*cos[i+half] + x[i]*sin[i+half] (half=dim/2)。
+AXONO_EXPORT core::Status RopeWithCosSin(const core::Context &ctx,
+                                         const core::Tensor &x,
+                                         const core::Tensor &cos,
+                                         const core::Tensor &sin,
+                                         core::Tensor &result);
+
+// RoPE 变体 2: 3D 位置 (T/H/W) 走交错 (interleaved stride-3) 频率重组,
+// 等价于 HF Qwen3VLTextRotaryEmbedding。pos: (3, seq) INT64, inv_freq: (dim/2,)
+// FLOAT32 (= theta^(-2i/dim), i in [0,dim/2)), mrope_section: [t,h,w]。
+AXONO_EXPORT core::Status RopeThd(const core::Context &ctx,
+                                  const core::Tensor &x,
+                                  const core::Tensor &pos,
+                                  const core::Tensor &inv_freq,
+                                  int t_sec, int h_sec, int w_sec,
+                                  core::Tensor &result);
+
 // 因果自注意力 (GQA): 一次算完 softmax(QK^T/sqrt(d) + mask) @ V。
 //   q: (seq, n_q_heads, head_dim)   k/v: (kv_seq, n_kv_heads, head_dim)
 //   n_q_heads 必须是 n_kv_heads 的整数倍 (GQA 分组广播);

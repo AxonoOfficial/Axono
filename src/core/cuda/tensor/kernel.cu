@@ -116,7 +116,7 @@ core::Status DispatchFill(Tensor &tensor, void *value, size_t value_size) {
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
+  axono::core::cuda::MaybeSync();
   return core::Status::OK;
 }
 
@@ -138,7 +138,7 @@ core::Status DispatchZero(Tensor &tensor) {
     return core::Status::UNSUPPORTED_TYPE;
   }
 
-  if (!axono::core::cuda::IsCapturing()) cudaDeviceSynchronize();
+  axono::core::cuda::MaybeSync();
   return core::Status::OK;
 }
 
