@@ -245,3 +245,54 @@ def test_full_text_block_cuda(cuda_env):
     y = axono.add(axono.add(x, attn_out), mlp)
     assert list(y.shape) == [seq, d_model]
     assert np.isfinite(y.to_numpy()).all()
+
+
+# ---------------------------------------------------------------------------
+# mrope_cos_sin
+# ---------------------------------------------------------------------------
+def _ref_mrope_cos_sin(pos3, theta, d_head, h_sec, w_sec):
+    inv = 1.0 / (theta ** (np.arange(0, d_head, 2, dtype=np.float32) / d_head))
+    freqs = pos3[:, :, None].astype(np.float32) * inv[None, None, :]
+    out = freqs[0].copy()
+    out[:, np.arange(1, h_sec * 3, 3)] = freqs[1][:, np.arange(1, h_sec * 3, 3)]
+    out[:, np.arange(2, w_sec * 3, 3)] = freqs[2][:, np.arange(2, w_sec * 3, 3)]
+    angles = np.concatenate([out, out], axis=-1)
+    return np.cos(angles), np.sin(angles)
+
+
+def test_mrope_cos_sin_cpu():
+    rng = np.random.default_rng(7)
+    seq, d_head = 33, 128
+    pos3 = rng.integers(0, 50, size=(3, seq)).astype(np.int64)
+    theta = 5e6
+    inv = 1.0 / (theta ** (np.arange(0, d_head, 2, dtype=np.float32) / d_head))
+    cos_t, sin_t = axono.mrope_cos_sin(
+        _ids_tensor(pos3, "cpu"),
+        Tensor.from_numpy(inv.astype(np.float32)), 20, 20)
+    rc, rs = _ref_mrope_cos_sin(pos3, theta, d_head, 20, 20)
+    np.testing.assert_allclose(cos_t.to_numpy(), rc, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(sin_t.to_numpy(), rs, rtol=1e-5, atol=1e-6)
+
+
+def test_mrope_cos_sin_cuda(cuda_env):
+    rng = np.random.default_rng(8)
+    seq, d_head = 17, 128
+    pos3 = rng.integers(0, 50, size=(3, seq)).astype(np.int64)
+    theta = 5e6
+    inv = 1.0 / (theta ** (np.arange(0, d_head, 2, dtype=np.float32) / d_head))
+    cos_t, sin_t = axono.mrope_cos_sin(
+        _ids_tensor(pos3, "cuda:0"),
+        Tensor.from_numpy(inv.astype(np.float32)).to("cuda:0"), 20, 20)
+    rc, rs = _ref_mrope_cos_sin(pos3, theta, d_head, 20, 20)
+    np.testing.assert_allclose(cos_t.to_numpy(), rc, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(sin_t.to_numpy(), rs, rtol=1e-5, atol=1e-6)
+
+
+def test_to_same_device_no_copy(cuda_env):
+    """torch 语义: 同设备 to() 返回自身 (共享 storage)。"""
+    x = Tensor.from_numpy(np.ones((4,), np.float32)).to("cuda:0")
+    y = x.to("cuda:0")
+    assert y is x
+    z = x.to("cpu")
+    assert z is not x
+

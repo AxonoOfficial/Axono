@@ -34,6 +34,7 @@ from .core.config import (
     set_inplace_enabled,
 )
 from .core.cuda_graph import CUDAGraph, cuda_graph
+from .core.compile import compile
 from .core.ops import (
     abs,
     argmax,
@@ -48,6 +49,7 @@ from .core.ops import (
     layer_norm,
     linear,
     linear_nobias,
+    mrope_cos_sin,
     log,
     log_softmax,
     neg,
@@ -117,6 +119,7 @@ __all__ = [
     "rms_norm",
     "linear",
     "linear_nobias",
+    "mrope_cos_sin",
     "embedding",
     "rope",
     "rope_with_cos_sin",
@@ -136,6 +139,7 @@ __all__ = [
     "get_matmul_backend",
     "CUDAGraph",
     "cuda_graph",
+    "compile",
     "nn",
     "welcome",
 ]

@@ -101,6 +101,13 @@ def _tensor_from_numpy(cls, array: np.ndarray) -> "Tensor":
     return tensor
 
 
+def _tensor_to_device(self, device: str) -> "Tensor":
+    """torch 语义: 同设备 to() 返回自身 (零拷贝); 跨设备走 C++ 迁移。"""
+    if device == self.device:
+        return self
+    return _orig_to(self, device)
+
+
 def _tensor_to_numpy(self) -> np.ndarray:
     """Return the tensor data as a numpy array."""
     name = _DTYPE_TO_ACCESSOR.get(self.dtype)
@@ -261,6 +268,7 @@ def _tensor_create_like(other: "Tensor") -> "Tensor":
 def _attach() -> None:
     """把便利方法挂到绑定类上 (幂等)。"""
     orig = {
+        "to": _l.Tensor.to,
         "reshape": _l.Tensor.reshape,
         "resize": _l.Tensor.resize,
         "fill_zero": _l.Tensor.fill_zero,
@@ -268,6 +276,7 @@ def _attach() -> None:
         "randn": _l.Tensor.randn,
     }
     globals()["_orig"] = orig
+    globals()["_orig_to"] = orig["to"]
 
     # classmethod / staticmethod 工厂
     Tensor.from_numpy = classmethod(_tensor_from_numpy)
@@ -279,6 +288,9 @@ def _attach() -> None:
     # 实例方法
     Tensor.to_numpy = _tensor_to_numpy
     Tensor.copy_from_numpy = _tensor_copy_from_numpy
+    # torch 语义: 同设备 to() 返回自身 (零拷贝)。C++ 按值返回会经拷贝构造
+    # 深拷贝一份 (Linear 构建期 from_numpy→to(device) 曾因此双倍显存)。
+    Tensor.to = _tensor_to_device
     Tensor.T = property(_tensor_T)
     Tensor.reshape = _tensor_reshape
     Tensor.resize = _tensor_resize

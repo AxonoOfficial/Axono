@@ -43,6 +43,16 @@ AXONO_EXPORT core::Status RopeThd(const core::Context &ctx,
                                   int t_sec, int h_sec, int w_sec,
                                   core::Tensor &result);
 
+// M-RoPE cos/sin 表 (与 RopeWithCosSin 配套, 无 numpy):
+//   pos: (3, seq) INT64 (T/H/W); inv_freq: (half,) FLOAT32;
+//   h_sec/w_sec: mrope_section[1]/[2]; 输出 cos/sin: (seq, 2*half) FLOAT32,
+//   前 dim/2 与后 dim/2 相同 (rotate_half 配对约定)。
+AXONO_EXPORT core::Status MropeCosSin(const core::Context &ctx,
+                                      const core::Tensor &pos,
+                                      const core::Tensor &inv_freq, int h_sec,
+                                      int w_sec, core::Tensor &cos_out,
+                                      core::Tensor &sin_out);
+
 // 因果自注意力 (GQA): 一次算完 softmax(QK^T/sqrt(d) + mask) @ V。
 //   q: (seq, n_q_heads, head_dim)   k/v: (kv_seq, n_kv_heads, head_dim)
 //   n_q_heads 必须是 n_kv_heads 的整数倍 (GQA 分组广播);

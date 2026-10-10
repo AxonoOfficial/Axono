@@ -66,10 +66,20 @@ def argmax(x):
     return _l.argmax(x)
 
 
+def mrope_cos_sin(pos, inv_freq, h_sec: int, w_sec: int):
+    """M-RoPE cos/sin 表 (纯 Tensor, 无 numpy)。
+
+    pos: (3, seq) INT64 (T/H/W 位置); inv_freq: (half,) FLOAT32;
+    返回 (cos, sin): 各 (seq, 2*half) FLOAT32 (前后两半相同, rotate_half 配对)。
+    """
+    return _l.mrope_cos_sin(pos, inv_freq, h_sec, w_sec)
+
+
 __all__ = [
     "rope",
     "rope_with_cos_sin",
     "rope_thd",
+    "mrope_cos_sin",
     "scaled_dot_product_attention",
     "embedding",
     "concat",

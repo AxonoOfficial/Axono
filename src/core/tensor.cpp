@@ -75,76 +75,22 @@ Tensor::Tensor(const Tensor &other)
     : dtype_(other.dtype_),
       shape_(other.shape_),
       device_(other.device_),
-      num_elements_(other.num_elements_) {
-  if (other.data_) {
-    // 总是重新分配存储
-    InitializeStorage();
-    
-    // 执行设备间拷贝
-    if (is_cuda()) {
-#ifdef AXONO_WITH_CUDA
-      if (other.is_cuda()) {
-        cuda::detail::cuda_memcpy_d2d(data_.get(), other.data_.get(),
-                                      num_bytes());
-      } else {
-        cuda::detail::cuda_memcpy_h2d(data_.get(), other.data_.get(),
-                                      num_bytes());
-      }
-#endif
-    } else {
-      if (other.is_cuda()) {
-#ifdef AXONO_WITH_CUDA
-        cuda::detail::cuda_memcpy_d2h(data_.get(), other.data_.get(),
-                                      num_bytes());
-#endif
-      } else {
-        std::memcpy(data_.get(), other.data_.get(), num_bytes());
-      }
-    }
-  }
+      num_elements_(other.num_elements_),
+      data_(other.data_) {
+  // torch 语义: 拷贝 = 共享 storage (浅拷贝, 引用计数)。显式深拷贝用
+  // Tensor(dtype, shape) + CopyFrom 或 to() 跨设备迁移。
+  // 此前的深拷贝 copy ctor 曾导致: Module::add_weight 每参数复制一份
+  // (2B 模型构建期显存翻倍 8.5→16.5GB)、to() 同设备复制等大量隐性浪费。
 }
 Tensor &Tensor::operator=(const Tensor &other) {
   if (this != &other) {
-    // 清理旧数据
+    // torch 语义: 拷贝赋值 = 共享 storage (浅拷贝)。
     data_.reset();
-    
-    // 更新所有成员变量
     dtype_ = other.dtype_;
     shape_ = other.shape_;
-    device_ = other.device_;  // 重要：更新设备信息！
+    device_ = other.device_;
     num_elements_ = other.num_elements_;
-    
-    if (other.data_) {
-      // 重新初始化存储
-      InitializeStorage();
-      
-      // 执行设备间正确的拷贝
-      if (device_ == other.device_) {
-        if (is_cuda()) {
-#ifdef AXONO_WITH_CUDA
-          cuda::detail::cuda_memcpy_d2d(data_.get(), other.data_.get(),
-                                        num_bytes());
-#endif
-        } else {
-          std::memcpy(data_.get(), other.data_.get(), num_bytes());
-        }
-      } else {
-        // 跨设备拷贝
-        if (other.is_cuda() && !is_cuda()) {
-#ifdef AXONO_WITH_CUDA
-          cuda::detail::cuda_memcpy_d2h(data_.get(), other.data_.get(),
-                                        num_bytes());
-#endif
-        } else if (!other.is_cuda() && is_cuda()) {
-#ifdef AXONO_WITH_CUDA
-          cuda::detail::cuda_memcpy_h2d(data_.get(), other.data_.get(),
-                                        num_bytes());
-#endif
-        } else {
-          throw std::runtime_error("Unsupported device copy");
-        }
-      }
-    }
+    data_ = other.data_;
   }
   return *this;
 }
@@ -190,8 +136,10 @@ Tensor Tensor::FromData(DataType dtype, const Shape &shape, void *data) {
 
 Tensor Tensor::to(const std::string &target_device) const {
   if (device_ == target_device) {
-    Tensor copy(*this);
-    return copy;
+    // torch 语义: 同设备 to() 返回自身 (共享 storage, 零拷贝)。
+    // 此前这里做了深拷贝, Linear/RMSNorm 等构建期 from_numpy→to(device) 双重
+    // 分配直接翻倍显存占用 (2B 模型 build 阶段 16.5GB vs 8.8GB)。
+    return *this;
   }
 
   Tensor result(dtype_, shape_, target_device);
@@ -231,14 +179,29 @@ Status Tensor::CopyFrom(const Tensor &src) {
   if (num_elements_ != src.num_elements_) return Status::SHAPE_MISMATCH;
   if (num_elements_ == 0) return Status::OK;
 
-  // 统一中转: src -> cpu -> 逐字节写入 -> 拷回 self 所在设备
-  Tensor tmp_cpu = src.to("cpu");
-  Tensor self_cpu = this->to("cpu");
-  std::memcpy(self_cpu.data<void *>(), tmp_cpu.data<void *>(), num_bytes());
-  Tensor migrated = self_cpu.to(device_);
-
-  // 用迁移结果的存储替换自身存储 (data_ 是 shared_ptr, 直接换)
-  data_ = std::move(migrated.data_);
+  // 直接设备到设备写入 self 的 storage (self 的 data_ 已由构造/Resize 分配)。
+  // (旧实现经 cpu 中转并整体替换 data_, 浅拷贝语义下 self_cpu 与 this 共享
+  // storage 会误写共享块, 故重写为直拷。)
+  if (is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+    if (src.is_cuda()) {
+      cuda::detail::cuda_memcpy_d2d(data<void *>(), src.data<void *>(),
+                                    num_bytes());
+    } else {
+      cuda::detail::cuda_memcpy_h2d(data<void *>(), src.data<void *>(),
+                                    num_bytes());
+    }
+#endif
+  } else {
+    if (src.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+      cuda::detail::cuda_memcpy_d2h(data<void *>(), src.data<void *>(),
+                                    num_bytes());
+#endif
+    } else {
+      std::memcpy(data<void *>(), src.data<void *>(), num_bytes());
+    }
+  }
   return Status::OK;
 }
 

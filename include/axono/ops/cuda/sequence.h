@@ -30,6 +30,12 @@ AXONO_EXPORT core::Status RopeThd(const core::Context &ctx,
                                   const core::Tensor &inv_freq,
                                   int t_sec, int h_sec, int w_sec,
                                   core::Tensor &result);
+// M-RoPE cos/sin 表: pos3 (3, seq) + inv_freq (half) -> cos/sin (seq, 2*half)。
+AXONO_EXPORT core::Status MropeCosSin(const core::Context &ctx,
+                                      const core::Tensor &pos,
+                                      const core::Tensor &inv_freq, int h_sec,
+                                      int w_sec, core::Tensor &cos_out,
+                                      core::Tensor &sin_out);
 AXONO_EXPORT core::Status ScaledDotProductAttention(
     const core::Context &ctx, const core::Tensor &q, const core::Tensor &k,
     const core::Tensor &v, bool is_causal, core::Tensor &result);

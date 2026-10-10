@@ -134,6 +134,49 @@ core::Status RopeWithCosSin(const core::Context &ctx, const core::Tensor &x,
 
 // RoPE 变体 2: 3D 位置 (T/H/W) 交错 (stride-3) 频率重组。
 // 逐 (r,h,i): freq_i 取 T 基础, i%3==1 且 i<3*h_sec 用 H, i%3==2 且 i<3*w_sec 用 W。
+core::Status MropeCosSin(const core::Context &ctx, const core::Tensor &pos,
+                         const core::Tensor &inv_freq, int h_sec, int w_sec,
+                         core::Tensor &cos_out, core::Tensor &sin_out) {
+  (void)ctx;
+  if (pos.ndim() != 2 || pos.shape()[0] != 3 || pos.dtype() != core::DataType::INT64)
+    return core::Status::SHAPE_MISMATCH;
+  const size_t rows = pos.shape()[1];
+  const size_t half = inv_freq.shape()[0];
+  if (half == 0) return core::Status::INVALID_ARGUMENT;
+  core::Status st = cos_out.Resize({rows, 2 * half});
+  if (st != core::Status::OK) return st;
+  st = sin_out.Resize({rows, 2 * half});
+  if (st != core::Status::OK) return st;
+  const int64_t *pp = pos.data<int64_t>();
+  const float *fp = inv_freq.data<float>();
+  float *cp = cos_out.data<float>();
+  float *sp = sin_out.data<float>();
+  const size_t h_lim = static_cast<size_t>(h_sec) * 3;
+  const size_t w_lim = static_cast<size_t>(w_sec) * 3;
+#pragma omp parallel for schedule(static)
+  for (size_t r = 0; r < rows; ++r) {
+    const float pt = static_cast<float>(pp[r]);
+    const float ph = static_cast<float>(pp[rows + r]);
+    const float pw = static_cast<float>(pp[2 * rows + r]);
+    float *cr = cp + r * (2 * half);
+    float *sr = sp + r * (2 * half);
+    for (size_t i = 0; i < half; ++i) {
+      const float f = fp[i];
+      float angle = pt * f;
+      if (i % 3 == 1 && i < h_lim)
+        angle = ph * f;
+      else if (i % 3 == 2 && i < w_lim)
+        angle = pw * f;
+      const float c = std::cos(angle), sn = std::sin(angle);
+      cr[i] = c;
+      cr[i + half] = c;
+      sr[i] = sn;
+      sr[i + half] = sn;
+    }
+  }
+  return core::Status::OK;
+}
+
 core::Status RopeThd(const core::Context &ctx, const core::Tensor &x,
                      const core::Tensor &pos, const core::Tensor &inv_freq,
                      int t_sec, int h_sec, int w_sec, core::Tensor &result) {

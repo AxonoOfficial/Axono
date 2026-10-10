@@ -20,6 +20,7 @@
 #ifdef AXONO_WITH_CUDA
 #include "axono/core/cuda/capture.h"
 #include "axono/core/cuda/capture_pool.h"
+#include "axono/core/cuda/detail.h"
 #include "axono/core/cuda/graph.h"
 #include "axono/core/cuda/tensor/kernel.h"
 #include "axono/ops/cuda/add.h"
@@ -318,6 +319,12 @@ NB_MODULE(libaxono, m) {
            }, nb::rv_policy::reference_internal);
 
   // ---- 算子 (自由函数) ----
+  // 缓存池诊断 (显存占用排查)
+  m.def("cached_bytes",
+        []() { return axono::core::cuda::GetCachedBytes(); });
+  m.def("set_cache_budget", [](size_t bytes) {
+    axono::core::cuda::SetCacheBudget(bytes);
+  });
   m.def("add", [](const core::Tensor &a, const core::Tensor &b) {
     if (check_device_match(a, b) != core::Status::OK)
       throw std::runtime_error("add: 输入张量不在同一设备上");
@@ -862,6 +869,32 @@ NB_MODULE(libaxono, m) {
         nb::arg("x"), nb::arg("pos"), nb::arg("inv_freq"), nb::arg("t_sec"),
         nb::arg("h_sec"), nb::arg("w_sec"),
         nb::sig("def rope_thd(x, pos, inv_freq, t_sec, h_sec, w_sec) -> Tensor"));
+
+  m.def("mrope_cos_sin",
+        [](const core::Tensor &pos, const core::Tensor &inv_freq, int h_sec,
+           int w_sec) {
+          core::Tensor cos_out(core::DataType::FLOAT32, {}, pos.device());
+          core::Tensor sin_out(core::DataType::FLOAT32, {}, pos.device());
+          core::Status st;
+          if (pos.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
+                                        w_sec, cos_out, sin_out);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
+                                       w_sec, cos_out, sin_out);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("mrope_cos_sin 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return nb::make_tuple(cos_out, sin_out);
+        },
+        nb::arg("pos"), nb::arg("inv_freq"), nb::arg("h_sec"),
+        nb::arg("w_sec"),
+        nb::sig("def mrope_cos_sin(pos, inv_freq, h_sec, w_sec) -> (Tensor, Tensor)"));
 
   m.def("scaled_dot_product_attention",
         [&](const core::Tensor &q, const core::Tensor &k,
