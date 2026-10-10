@@ -111,15 +111,79 @@ def main() -> int:
         _check("maximum", axono.maximum(ta, tb), ref(torch.maximum(tha, thb)), results)
         _check("minimum", axono.minimum(ta, tb), ref(torch.minimum(tha, thb)), results)
 
+        # LLM 相关算子 + 单算子融合 Linear
+        lin_w = rng.standard_normal((32, shape[1])).astype(np.float32)
+        lin_b = rng.standard_normal(32).astype(np.float32)
+        tlin_w = axono.Tensor.from_numpy(lin_w).to(device)
+        tlin_b = axono.Tensor.from_numpy(lin_b).to(device)
+        thlin_w = torch.from_numpy(lin_w).to(td)
+        thlin_b = torch.from_numpy(lin_b).to(td)
+        _check(
+            "linear",
+            axono.linear(ta, tlin_w, tlin_b),
+            ref(torch.nn.functional.linear(tha, thlin_w, thlin_b)),
+            results,
+        )
+        _check(
+            "linear_nobias",
+            axono.linear_nobias(ta, tlin_w),
+            ref(torch.nn.functional.linear(tha, thlin_w)),
+            results,
+        )
+        _check("softmax", axono.softmax(ta), ref(torch.softmax(tha, dim=-1)), results)
+        _check(
+            "log_softmax",
+            axono.log_softmax(ta),
+            ref(torch.log_softmax(tha, dim=-1)),
+            results,
+        )
+        _check("gelu", axono.gelu(ta), ref(torch.nn.functional.gelu(tha)), results)
+        _check("silu", axono.silu(ta), ref(torch.nn.functional.silu(tha)), results)
+        ln_w = rng.standard_normal(shape[-1]).astype(np.float32)
+        ln_b = rng.standard_normal(shape[-1]).astype(np.float32)
+        tln_w = axono.Tensor.from_numpy(ln_w).to(device)
+        tln_b = axono.Tensor.from_numpy(ln_b).to(device)
+        thln_w = torch.from_numpy(ln_w).to(td)
+        thln_b = torch.from_numpy(ln_b).to(td)
+        _check(
+            "layer_norm",
+            axono.layer_norm(ta, tln_w, tln_b),
+            ref(torch.nn.functional.layer_norm(tha, (shape[-1],), thln_w, thln_b)),
+            results,
+        )
+        _check(
+            "rms_norm",
+            axono.rms_norm(ta, tln_w),
+            ref(tha * torch.rsqrt((tha * tha).mean(-1, keepdim=True) + 1e-5) * thln_w),
+            results,
+        )
+
         # CUDA Graph 回放精度: 同一计算, eager vs replay
         if device == "cuda":
             print("  -- CUDA Graph 回放精度 --")
             with axono.cuda_graph() as g:
-                y = axono.relu(axono.matmul(ta, tb))
+                y = axono.softmax(axono.linear(ta, tlin_w, tlin_b))
                 g.output = y
             g.replay()
             g.sync()
-            _check("graph: relu(matmul)", g.output, ref(torch.relu(tha @ thb)), results)
+            _check(
+                "graph: softmax(linear)",
+                g.output,
+                ref(
+                    torch.softmax(
+                        torch.nn.functional.linear(tha, thlin_w, thlin_b), dim=-1
+                    )
+                ),
+                results,
+            )
+            with axono.cuda_graph() as g2:
+                y2 = axono.relu(axono.matmul(ta, tb))
+                g2.output = y2
+            g2.replay()
+            g2.sync()
+            _check(
+                "graph: relu(matmul)", g2.output, ref(torch.relu(tha @ thb)), results
+            )
 
     axono.set_backend("cpu")
     n_pass = sum(1 for r in results if r[1])

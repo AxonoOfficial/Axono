@@ -132,7 +132,23 @@ def _tensor_T(self) -> "Tensor":
 
 
 def _tensor_reshape(self, new_shape) -> "Tensor":
-    st = _orig["reshape"](self, list(new_shape))
+    shape = [int(s) for s in new_shape]
+    if any(s < 0 for s in shape):
+        # 解析 -1: 由已知维与总元素数推
+        known = 1
+        n_neg = 0
+        for s in shape:
+            if s < 0:
+                n_neg += 1
+            else:
+                known *= s
+        if n_neg > 1:
+            raise ValueError("reshape: 至多一个 -1")
+        total = self.to_numpy().size if hasattr(self, "to_numpy") else None
+        if total is None or total % known != 0:
+            raise ValueError(f"reshape: 无法解析 -1 (known={known})")
+        shape = [total // known if s < 0 else s for s in shape]
+    st = _orig["reshape"](self, tuple(shape))
     if st != Status.OK:
         raise RuntimeError(f"Reshape failed with status: {st}")
     return self

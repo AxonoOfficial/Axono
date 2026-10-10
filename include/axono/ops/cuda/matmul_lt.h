@@ -1,6 +1,7 @@
 // Axono v0.2 — cuBLASLt 接口声明 (实现在 matmul_lt.cu)
 #pragma once
 
+#include <cublas_v2.h>
 #include <cuda_runtime.h>
 
 #include "axono/core/macros.h"
@@ -20,11 +21,13 @@ AXONO_EXPORT bool CublasLtEnabled();
 AXONO_EXPORT bool TryLtGemmF32(int n, int m, int k, const float *alpha,
                                const float *b, int ldb, const float *a,
                                int lda, const float *beta, float *c, int ldc,
-                               cudaStream_t stream);
+                               cudaStream_t stream,
+                               cublasOperation_t transa = CUBLAS_OP_N);
 AXONO_EXPORT bool TryLtGemmF64(int n, int m, int k, const double *alpha,
                                const double *b, int ldb, const double *a,
                                int lda, const double *beta, double *c, int ldc,
-                               cudaStream_t stream);
+                               cudaStream_t stream,
+                               cublasOperation_t transa = CUBLAS_OP_N);
 
 }  // namespace cuda
 }  // namespace ops

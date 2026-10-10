@@ -28,6 +28,22 @@ from .elementwise import (
     square,
     tanh,
 )
+from .llm import (
+    argmax,
+    concat,
+    embedding,
+    gelu,
+    layer_norm,
+    linear,
+    linear_nobias,
+    log_softmax,
+    rms_norm,
+    rope,
+    scaled_dot_product_attention,
+    silu,
+    slice_,
+    softmax,
+)
 from .relu import relu, relu_
 
 __all__ = [
@@ -49,4 +65,18 @@ __all__ = [
     "floor",
     "ceil",
     "round",
+    "softmax",
+    "log_softmax",
+    "gelu",
+    "silu",
+    "layer_norm",
+    "rms_norm",
+    "linear",
+    "linear_nobias",
+    "embedding",
+    "rope",
+    "scaled_dot_product_attention",
+    "concat",
+    "slice_",
+    "argmax",
 ]

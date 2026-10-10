@@ -326,11 +326,13 @@ bool CublasLtEnabled() { return g_use_lt.load(); }
 // (C = alpha * op(A) * op(B) + beta * C, 列主序映射后即 C' = ...)。
 bool TryLtGemmF32(int n, int m, int k, const float *alpha, const float *b,
                   int ldb, const float *a, int lda, const float *beta,
-                  float *c, int ldc, cudaStream_t stream) {
+                  float *c, int ldc, cudaStream_t stream,
+                  cublasOperation_t transa = CUBLAS_OP_N) {
   if (!g_use_lt.load()) return false;
   std::lock_guard<std::mutex> lock(LtMutex());
   try {
-    return LtGemm<float>(CUBLAS_OP_N, CUBLAS_OP_N, n, m, k, alpha, b, ldb, a,
+    // transa 作用于 b 指针 (即 LtGemm 的 op_b), 供 Linear 等 W^T gemm 使用
+    return LtGemm<float>(transa, CUBLAS_OP_N, n, m, k, alpha, b, ldb, a,
                          lda, beta, c, ldc, stream) == CUBLAS_STATUS_SUCCESS;
   } catch (const std::exception &) {
     return false;
@@ -339,11 +341,13 @@ bool TryLtGemmF32(int n, int m, int k, const float *alpha, const float *b,
 
 bool TryLtGemmF64(int n, int m, int k, const double *alpha, const double *b,
                   int ldb, const double *a, int lda, const double *beta,
-                  double *c, int ldc, cudaStream_t stream) {
+                  double *c, int ldc, cudaStream_t stream,
+                  cublasOperation_t transa = CUBLAS_OP_N) {
   if (!g_use_lt.load()) return false;
   std::lock_guard<std::mutex> lock(LtMutex());
   try {
-    return LtGemm<double>(CUBLAS_OP_N, CUBLAS_OP_N, n, m, k, alpha, b, ldb, a,
+    // transa 作用于 b 指针 (即 LtGemm 的 op_b), 供 Linear 等 W^T gemm 使用
+    return LtGemm<double>(transa, CUBLAS_OP_N, n, m, k, alpha, b, ldb, a,
                           lda, beta, c, ldc, stream) == CUBLAS_STATUS_SUCCESS;
   } catch (const std::exception &) {
     return false;
