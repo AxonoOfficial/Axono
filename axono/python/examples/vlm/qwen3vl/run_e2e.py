@@ -43,8 +43,13 @@ def main() -> int:
     model = Qwen3VLForConditionalGeneration(
         os.path.join(args.model, "config.json"), device=args.device
     )
-    print("加载 HF safetensors 权重 ...")
-    model.load_hf_weights(args.model)
+    axm = os.path.join(args.model, "model.axm")
+    if os.path.exists(axm):
+        print("加载 .axm 权重 ...")
+        model.load_axm_weights(axm)
+    else:
+        print("加载 HF safetensors 权重 ...")
+        model.load_hf_weights(args.model)
     print(f"  参数量: {len(model.parameters())}")
 
     v = model.config["vision_config"]

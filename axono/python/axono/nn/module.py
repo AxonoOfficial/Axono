@@ -86,7 +86,12 @@ class Module:
         return dict(self.parameters())
 
     def load_state_dict(self, sd: dict, strict: bool = True) -> None:
-        """从 {扁平名: Tensor|ndarray} 加载参数 (原地 copy, 保持设备)。"""
+        """从 {扁平名: Tensor|ndarray} 加载参数 (原地 copy, 保持设备)。
+
+        值为 Tensor 时走设备间直拷 (一次 H2D/D2D), 避免经 numpy 中转;
+        值为 memmap ndarray 时直接 copy_from_numpy (无 astype 转换, dtype
+        必须一致 — fp16 .axm 会先显式转换)。
+        """
         import numpy as np
 
         params = self.parameters()
@@ -98,18 +103,21 @@ class Module:
                 missing.append(name)
                 continue
             v = sd[name]
-            if not isinstance(v, Tensor):
-                v = Tensor.from_numpy(np.ascontiguousarray(v.astype(np.float32)))
-            src = (
-                v.to("cpu").to_numpy()
-                if v.device != "cpu" and v.device
-                else v.to_numpy()
-            )
+            if isinstance(v, Tensor):
+                if v.device == t.device:
+                    t.copy_from(v)
+                else:
+                    t.copy_from(v.to(t.device))
+                continue
+            if v.dtype != np.float32:
+                v = np.ascontiguousarray(v, dtype=np.float32)
+            elif not isinstance(v, np.memmap) and not v.flags.c_contiguous:
+                v = np.ascontiguousarray(v)
+            # memmap 且 c_contiguous: 直接用 (零拷贝视图)
             if t.device != "cpu" and t.device:
-                dst = Tensor.from_numpy(np.ascontiguousarray(src)).to(t.device)
-                t.copy_from(dst)
+                t.copy_from(Tensor.from_numpy(v).to(t.device))
             else:
-                t.copy_from_numpy(src)
+                t.copy_from_numpy(v)
         if strict and missing:
             raise KeyError(f"state_dict 缺少参数: {missing}")
 
