@@ -8,6 +8,7 @@
 // 因此无需真实转置或任何数据拷贝。
 
 #include <cublas_v2.h>
+#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
 #include <cstddef>
@@ -174,6 +175,22 @@ core::Status MatMul(const core::Context &ctx, const core::Tensor &a,
                                        k, &alpha, b.data<double>(), ldb,
                                        a.data<double>(), lda, &beta,
                                        result.data<double>(), ldc));
+        break;
+      }
+      case core::DataType::FLOAT16: {
+        // 16F in/out + 32F 累加 (tensor core); beta 固定 0 (无累加语义)
+        if (!TryLtGemmF16(static_cast<int>(n), static_cast<int>(m),
+                          static_cast<int>(k),
+                          static_cast<const __half *>(b.data()),
+                          static_cast<int>(ldb),
+                          static_cast<const __half *>(a.data()),
+                          static_cast<int>(lda),
+                          static_cast<__half *>(result.data()),
+                          static_cast<int>(ldc),
+                          axono::core::cuda::AxonoCurrentStream(),
+                          CUBLAS_OP_N, 0.0f)) {
+          return core::Status::UNSUPPORTED_TYPE;
+        }
         break;
       }
       case core::DataType::INT32:

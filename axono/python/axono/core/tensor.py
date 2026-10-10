@@ -63,6 +63,7 @@ _NUMPY_TO_DTYPE = {
     np.int16: DataType.INT16,
     np.int32: DataType.INT32,
     np.int64: DataType.INT64,
+    np.float16: DataType.FLOAT16,
     np.float32: DataType.FLOAT32,
     np.float64: DataType.FLOAT64,
     np.bool_: DataType.BOOLEAN,
@@ -73,6 +74,7 @@ _DTYPE_TO_ACCESSOR = {
     DataType.INT16: "data_int16",
     DataType.INT32: "data_int32",
     DataType.INT64: "data_int64",
+    DataType.FLOAT16: "data_float16",
     DataType.FLOAT32: "data_float32",
     DataType.FLOAT64: "data_float64",
     DataType.BOOLEAN: "data_bool",
@@ -101,11 +103,34 @@ def _tensor_from_numpy(cls, array: np.ndarray) -> "Tensor":
     return tensor
 
 
+def _tensor_from_numpy_ref(array: np.ndarray) -> "Tensor":
+    """零拷贝借用 numpy 内存构造 CPU Tensor (不复制)。
+
+    返回的 Tensor 直接引用 array 的内存: 适合 mmap 权重加载
+    (memmap → ref Tensor → to(cuda) 一步 DMA, 省去 host 中转拷贝)。
+    生命周期: nanobind keep_alive 使 Tensor 持有 array 引用;
+    写入该 Tensor 会改写源数组 (共享内存), 数组须 C 连续 fp32/int64。
+    """
+    # np.asarray: memmap/子类 → 基类 ndarray 视图 (零拷贝), 让 nanobind 
+    # 的 nb::ndarray 签名能匹配。fp16 memmap (np.float16) 先零拷贝 view 成
+    # uint16 (同字节), C++ 侧识别 uint16 → FLOAT16 借用。
+    arr = np.asarray(array)
+    if arr.dtype == np.float16:
+        arr = arr.view(np.uint16)
+    name = "from_borrowed_i64" if arr.dtype == np.int64 else "from_borrowed"
+    return getattr(Tensor, name)(arr)
+
+
 def _tensor_to_device(self, device: str) -> "Tensor":
     """torch 语义: 同设备 to() 返回自身 (零拷贝); 跨设备走 C++ 迁移。"""
     if device == self.device:
         return self
     return _orig_to(self, device)
+
+
+def _tensor_cast_to(self, target: "DataType") -> "Tensor":
+    """类型转换 (返回新 Tensor; 同 dtype 时浅拷贝共享 storage)。"""
+    return self._orig_cast_to(DataType(target))
 
 
 def _tensor_to_numpy(self) -> np.ndarray:
@@ -280,6 +305,7 @@ def _attach() -> None:
 
     # classmethod / staticmethod 工厂
     Tensor.from_numpy = classmethod(_tensor_from_numpy)
+    Tensor.from_numpy_ref = staticmethod(_tensor_from_numpy_ref)
     Tensor.randn = staticmethod(_tensor_randn)
     Tensor.zeros = staticmethod(_tensor_zeros)
     Tensor.ones = staticmethod(_tensor_ones)
@@ -287,6 +313,7 @@ def _attach() -> None:
     Tensor.create_like = staticmethod(_tensor_create_like)
     # 实例方法
     Tensor.to_numpy = _tensor_to_numpy
+    Tensor.cast_to = _tensor_cast_to
     Tensor.copy_from_numpy = _tensor_copy_from_numpy
     # torch 语义: 同设备 to() 返回自身 (零拷贝)。C++ 按值返回会经拷贝构造
     # 深拷贝一份 (Linear 构建期 from_numpy→to(device) 曾因此双倍显存)。

@@ -13,6 +13,9 @@ namespace tensor {
 AXONO_EXPORT core::Status DispatchFill(core::Tensor &tensor, void *value,
                                        size_t value_size);
 AXONO_EXPORT core::Status DispatchZero(core::Tensor &tensor);
+// FLOAT16 <-> FLOAT32 原地无关转换 (src->dst, 两张量同形状同设备)
+AXONO_EXPORT core::Status DispatchCastF16F32(core::Tensor &dst,
+                                             const core::Tensor &src);
 
 AXONO_EXPORT void TensorCopyKernel(void *dst, const void *src,
                                    size_t num_bytes);

@@ -49,6 +49,17 @@ __global__ void BroadcastBiasF64(double *out, const double *bias, size_t rows,
   if (idx < rows * cols) out[idx] = bias[idx % cols];
 }
 
+__global__ void BroadcastBiasF16(__half *out, const __half *bias, size_t rows,
+                                 size_t out_f) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < rows * out_f) out[idx] = bias[idx % out_f];
+}
+
+__global__ void FillZeroF16(__half *out, size_t n) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < n) out[idx] = __half(0.0f);
+}
+
 __global__ void FillZeroF32(float *out, size_t n) {
   const size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (idx < n) out[idx] = 0.0f;
@@ -74,6 +85,84 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
   const bool has_bias = bias.num_elements() != 0;
   if (has_bias && (bias.ndim() != 1 || bias.shape()[0] != out_f))
     return core::Status::SHAPE_MISMATCH;
+  // ---- FP16 混合路径: weight fp16 + x fp32 → tensor core gemm ----
+  // x cast 到 fp16, gemm 16F/32F-acc, bias 广播进 fp16 中间结果,
+  // 最终 cast 回 fp32。上层无感 (输入输出仍是 fp32)。
+  const int M = static_cast<int>(out_f);
+  const int N = static_cast<int>(rows);
+  const int K = static_cast<int>(k);
+  const float alpha_f = 1.0f, beta_f = 1.0f;
+  cudaStream_t s = core::cuda::AxonoCurrentStream();
+  if (weight.dtype() == core::DataType::FLOAT16 &&
+      x.dtype() == core::DataType::FLOAT32 &&
+      result.dtype() == core::DataType::FLOAT32) {
+    std::vector<size_t> out_shape16 = x.shape();
+    out_shape16.back() = out_f;
+    core::Tensor xh = x.CastTo(core::DataType::FLOAT16);
+    core::Tensor resh(core::DataType::FLOAT16,
+                      core::Shape(out_shape16.begin(), out_shape16.end()),
+                      x.device());
+    resh.InitializeStorage();
+    core::Tensor bh;
+    if (has_bias) bh = bias.CastTo(core::DataType::FLOAT16);
+    const size_t total16 = rows * out_f;
+    const dim3 grid16(static_cast<unsigned>((total16 + 255) / 256));
+    if (has_bias) {
+      BroadcastBiasF16<<<grid16, 256, 0, s>>>(
+          static_cast<__half *>(resh.data()),
+          static_cast<const __half *>(bh.data()), rows, out_f);
+    } else {
+      FillZeroF16<<<grid16, 256, 0, s>>>(
+          static_cast<__half *>(resh.data()), total16);
+    }
+    if (cudaGetLastError() != cudaSuccess)
+      return core::Status::DEVICE_ERROR;
+    // gemm: resh += xh @ W^T; 列主序映射同 F32 注释块
+    if (!TryLtGemmF16(M, N, K, static_cast<const __half *>(weight.data()),
+                      K, static_cast<const __half *>(xh.data()), K,
+                      static_cast<__half *>(resh.data()),
+                      static_cast<int>(out_f), s, CUBLAS_OP_T)) {
+      // Lt 不可用 (如 backend 切到经典 cublas): 回退 fp32 全精度路径
+      core::Tensor w32 = weight.CastTo(core::DataType::FLOAT32);
+      core::Tensor b32;
+      if (has_bias) b32 = bias.CastTo(core::DataType::FLOAT32);
+      core::Tensor res32(core::DataType::FLOAT32,
+                         core::Shape(out_shape16.begin(), out_shape16.end()),
+                         x.device());
+      res32.InitializeStorage();
+      const size_t total32 = rows * out_f;
+      const dim3 grid32(static_cast<unsigned>((total32 + 255) / 256));
+      if (has_bias) {
+        BroadcastBiasF32<<<grid32, 256, 0, s>>>(res32.data<float>(),
+                                                b32.data<float>(), rows,
+                                                out_f);
+      } else {
+        FillZeroF32<<<grid32, 256, 0, s>>>(res32.data<float>(), total32);
+      }
+      if (cudaGetLastError() != cudaSuccess)
+        return core::Status::DEVICE_ERROR;
+      if (!TryLtGemmF32(M, N, K, &alpha_f, w32.data<float>(), K,
+                        x.data<float>(), K, &beta_f, res32.data<float>(),
+                        static_cast<int>(out_f), s, CUBLAS_OP_T)) {
+        cublasHandle_t handle = GetCublasHandle();
+        cublasSetStream(handle, s);
+        AXONO_CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, M, N,
+                                       K, &alpha_f, w32.data<float>(), K,
+                                       x.data<float>(), K, &beta_f,
+                                       res32.data<float>(),
+                                       static_cast<int>(out_f)));
+      }
+      core::Status st32 = result.CopyFrom(res32);
+      if (core::cuda::MaybeSync() != cudaSuccess)
+        return core::Status::INTERNAL_ERROR;
+      return st32;
+    }
+    core::Tensor out32 = resh.CastTo(core::DataType::FLOAT32);
+    core::Status st = result.CopyFrom(out32);
+    if (core::cuda::MaybeSync() != cudaSuccess)
+      return core::Status::INTERNAL_ERROR;
+    return st;
+  }
   if (x.dtype() != weight.dtype() || x.dtype() != result.dtype())
     return core::Status::UNSUPPORTED_TYPE;
   if (has_bias && bias.dtype() != x.dtype())
@@ -84,7 +173,6 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
   if (st != core::Status::OK) return st;
   if (rows == 0 || k == 0 || out_f == 0) return core::Status::OK;
 
-  cudaStream_t s = core::cuda::AxonoCurrentStream();
 
   // ① result 初值: bias 广播 / 清零
   const size_t total = rows * out_f;
@@ -110,11 +198,8 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
   //   resultᵀ = Wᵀ · xᵀ: W 视为列主 (k,out_f) ld=k → opA=T;
   //   x 视为列主 (k,rows) ld=k → opB=N。
   //   gemm(opA=T, opB=N, m=out_f, n=rows, k=k), C ld=out_f。
-  const int M = static_cast<int>(out_f);
-  const int N = static_cast<int>(rows);
-  const int K = static_cast<int>(k);
-  const float alpha_f = 1.0f, beta_f = 1.0f;
   const double alpha_d = 1.0, beta_d = 1.0;
+
   try {
     if (x.dtype() == core::DataType::FLOAT32) {
       if (!TryLtGemmF32(M, N, K, &alpha_f, weight.data<float>(), K,

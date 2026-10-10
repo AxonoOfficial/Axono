@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "axono/core/cuda/capture.h"
+#include "axono/ops/cuda/sequence.h"
 #include "axono/core/cuda/stream.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"

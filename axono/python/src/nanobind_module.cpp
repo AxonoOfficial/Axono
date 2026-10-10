@@ -188,6 +188,7 @@ NB_MODULE(libaxono, m) {
       .value("INT16", core::DataType::INT16)
       .value("INT32", core::DataType::INT32)
       .value("INT64", core::DataType::INT64)
+      .value("FLOAT16", core::DataType::FLOAT16)
       .value("FLOAT32", core::DataType::FLOAT32)
       .value("FLOAT64", core::DataType::FLOAT64)
       .value("BOOLEAN", core::DataType::BOOLEAN);
@@ -216,6 +217,40 @@ NB_MODULE(libaxono, m) {
                   nb::arg("device") = "cpu", nb::arg("mean") = 0.0f,
                   nb::arg("stddev") = 1.0f)
       .def_static("create_like", &core::Tensor::CreateLike)
+      .def_static(
+          "from_borrowed",
+          [](nb::ndarray<nb::numpy, nb::c_contig, nb::ro> arr) {
+            core::Shape shape;
+            for (size_t i = 0; i < arr.ndim(); ++i)
+              shape.push_back(static_cast<size_t>(arr.shape(i)));
+            if (arr.dtype() == nb::dtype<float>()) {
+              return core::Tensor::FromBorrowed(core::DataType::FLOAT32,
+                                                shape, arr.data());
+            }
+            if (arr.dtype() == nb::dtype<uint16_t>()) {
+              // fp16 以 uint16 位模式零拷贝借用
+              return core::Tensor::FromBorrowed(core::DataType::FLOAT16,
+                                                shape, arr.data());
+            }
+            throw std::runtime_error(
+                "from_borrowed: 仅支持 FLOAT32/FLOAT16");
+          },
+          nb::arg("array"), nb::keep_alive<0, 1>(),
+          nb::sig("def from_borrowed(array) -> Tensor"))
+      .def_static(
+          "from_borrowed_i64",
+          [](nb::ndarray<nb::numpy, nb::c_contig, nb::ro> arr) {
+            core::Shape shape;
+            for (size_t i = 0; i < arr.ndim(); ++i)
+              shape.push_back(static_cast<size_t>(arr.shape(i)));
+            if (arr.dtype() != nb::dtype<int64_t>()) {
+              throw std::runtime_error("from_borrowed_i64: 仅支持 INT64");
+            }
+            return core::Tensor::FromBorrowed(core::DataType::INT64, shape,
+                                              arr.data());
+          },
+          nb::arg("array"), nb::keep_alive<0, 1>(),
+          nb::sig("def from_borrowed_i64(array) -> Tensor"))
       .def("to", [](const core::Tensor &self, const std::string &device) {
              return self.to(device);
            }, nb::arg("device"))
@@ -268,6 +303,7 @@ NB_MODULE(libaxono, m) {
              }
            }, nb::arg("value"))
       .def("is_same_shape", &core::Tensor::IsSameShape)
+      .def("_orig_cast_to", &core::Tensor::CastTo)
       .def_prop_ro("is_cuda", &core::Tensor::is_cuda)
       .def_prop_ro("device", &core::Tensor::device)
       .def_prop_ro("dtype", &core::Tensor::dtype)
@@ -289,6 +325,16 @@ NB_MODULE(libaxono, m) {
            })
       .def("data_int64", [](nb::object &self) {
              return tensor_to_ndarray<int64_t>(nb::cast<core::Tensor &>(self), self);
+           })
+      .def("data_float16", [](nb::object &self) {
+             // fp16 以 uint16 位模式暴露, numpy .view(np.float16) 零拷贝重解释
+             auto &t = nb::cast<core::Tensor &>(self);
+             if (t.dtype() != core::DataType::FLOAT16) {
+               throw std::runtime_error("data_float16: tensor 不是 FLOAT16");
+             }
+             // 借用 int16 accessor 的 ndarray 结构, dtype 由 Python 侧 view
+             auto arr = tensor_to_ndarray<int16_t>(t, self);
+             return arr;
            })
       .def("data_float32", [](nb::object &self) {
              return tensor_to_ndarray<float>(nb::cast<core::Tensor &>(self), self);
@@ -629,8 +675,15 @@ NB_MODULE(libaxono, m) {
     if (x.is_cuda() != weight.is_cuda() ||
         (bias.num_elements() != 0 && bias.is_cuda() != x.is_cuda()))
       throw std::runtime_error("linear: 输入张量不在同一设备上");
-    if (x.dtype() != weight.dtype() ||
-        (bias.num_elements() != 0 && bias.dtype() != x.dtype()))
+    // FP16 混合: x fp32 + weight/bias fp16 合法 (Linear 内部 cast)
+    const bool fp16_mixed =
+        weight.dtype() == core::DataType::FLOAT16 &&
+        x.dtype() == core::DataType::FLOAT32 &&
+        (bias.num_elements() == 0 ||
+         bias.dtype() == core::DataType::FLOAT16);
+    if (!fp16_mixed &&
+        (x.dtype() != weight.dtype() ||
+         (bias.num_elements() != 0 && bias.dtype() != x.dtype())))
       throw std::runtime_error("linear: 数据类型不一致");
     core::Tensor result(x.dtype(), std::vector<size_t>{x.shape()[0],
                                                        weight.shape()[0]},

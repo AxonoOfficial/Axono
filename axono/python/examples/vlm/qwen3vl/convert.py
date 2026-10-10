@@ -24,7 +24,6 @@
 """
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -61,25 +60,30 @@ def convert(model_dir: str, out_path: str, dtype: str | None) -> dict:
     size = os.path.getsize(out_path) / 1e9
     n = len(tensors)
     del tensors
-    return {"n_tensors": n, "size_gb": size, "t_read": t_read,
-            "t_write": t_write}
+    return {"n_tensors": n, "size_gb": size, "t_read": t_read, "t_write": t_write}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", required=True, help="HF 模型目录")
-    ap.add_argument("--out", default=None, help="输出 .axm 路径 "
-                    "(默认 <model>/model.axm)")
-    ap.add_argument("--dtype", default=None,
-                    choices=["float32", "float16"],
-                    help="统一存储 dtype (默认保留源 dtype)")
+    ap.add_argument(
+        "--out", default=None, help="输出 .axm 路径 (默认 <model>/model.axm)"
+    )
+    ap.add_argument(
+        "--dtype",
+        default=None,
+        choices=["float32", "float16"],
+        help="统一存储 dtype (默认保留源 dtype)",
+    )
     args = ap.parse_args()
 
     out = args.out or os.path.join(args.model, "model.axm")
     st = convert(args.model, out, args.dtype)
     print(f"转换完成: {out}")
-    print(f"  张量数 {st['n_tensors']}, 体积 {st['size_gb']:.2f} GB, "
-          f"读取 {st['t_read']:.1f}s + 写出 {st['t_write']:.1f}s")
+    print(
+        f"  张量数 {st['n_tensors']}, 体积 {st['size_gb']:.2f} GB, "
+        f"读取 {st['t_read']:.1f}s + 写出 {st['t_write']:.1f}s"
+    )
     return 0
 
 

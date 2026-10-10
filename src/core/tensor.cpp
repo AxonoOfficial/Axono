@@ -7,11 +7,13 @@
 
 #ifdef AXONO_WITH_CUDA
 #include "axono/ops/cuda/randn.h"
+#include "axono/core/cuda/capture.h"
 #include "axono/core/cuda/detail.h"
 #include "axono/core/cuda/tensor/kernel.h"
 #include "axono/core/cuda/tensor/transpose.h"
 #endif
 
+#include "axono/core/half.h"
 #include "axono/ops/cpu/randn.h"
 #include "axono/core/cpu/tensor/kernel.h"
 #include "axono/core/types.h"
@@ -132,6 +134,14 @@ Tensor Tensor::CreateLike(const Tensor &other) {
 
 Tensor Tensor::FromData(DataType dtype, const Shape &shape, void *data) {
   return Tensor(dtype, shape, data);
+}
+
+Tensor Tensor::FromBorrowed(DataType dtype, const Shape &shape,
+                            const void *data) {
+  Tensor t(dtype, shape);
+  // no-op deleter: 借用内存, 析构不释放 (生命周期由调用方管理)。
+  t.data_ = std::shared_ptr<void>(const_cast<void *>(data), [](void *) {});
+  return t;
 }
 
 Tensor Tensor::to(const std::string &target_device) const {
@@ -354,6 +364,9 @@ std::string Tensor::ToString() const {
     case DataType::INT64:
       oss << "int64";
       break;
+    case DataType::FLOAT16:
+      oss << "float16";
+      break;
     case DataType::FLOAT32:
       oss << "float32";
       break;
@@ -410,5 +423,70 @@ Tensor Tensor::Transpose(int dim0, int dim1) {
     return dst;
 }
 
+
+
+namespace {
+
+template <typename SrcT, typename DstT>
+void CastLoop(const void *src, void *dst, size_t n) {
+  const SrcT *s = static_cast<const SrcT *>(src);
+  DstT *d = static_cast<DstT *>(dst);
+  for (size_t i = 0; i < n; ++i) d[i] = static_cast<DstT>(s[i]);
+}
+
+}  // namespace
+
+Tensor Tensor::CastTo(DataType target) const {
+  if (dtype_ == target) return *this;  // 浅拷贝语义 (共享 storage)
+  if (!data_) throw std::runtime_error("CastTo: empty tensor");
+  Tensor dst(target, shape_, device_);
+  dst.InitializeStorage();
+  const size_t n = num_elements_;
+  const void *sp = data_.get();
+  void *dp = dst.data_.get();
+
+#ifdef AXONO_WITH_CUDA
+  if (is_cuda() && ((dtype_ == DataType::FLOAT16 &&
+                     target == DataType::FLOAT32) ||
+                    (dtype_ == DataType::FLOAT32 &&
+                     target == DataType::FLOAT16))) {
+    Status st = cuda::tensor::DispatchCastF16F32(dst, *this);
+    if (st != Status::OK) throw std::runtime_error("CastTo CUDA failed");
+    if (cuda::MaybeSync() != cudaSuccess)
+      throw std::runtime_error("CastTo CUDA sync failed");
+    return dst;
+  }
+#endif
+
+  // fp16 CPU 路径: 手写 half 位模式转换
+  if (dtype_ == DataType::FLOAT16 && target == DataType::FLOAT32) {
+    const uint16_t *s = static_cast<const uint16_t *>(sp);
+    float *d = static_cast<float *>(dp);
+    for (size_t i = 0; i < n; ++i) d[i] = detail::Half2Float(s[i]);
+    return dst;
+  }
+  if (dtype_ == DataType::FLOAT32 && target == DataType::FLOAT16) {
+    const float *s = static_cast<const float *>(sp);
+    uint16_t *d = static_cast<uint16_t *>(dp);
+    for (size_t i = 0; i < n; ++i) d[i] = detail::Float2Half(s[i]);
+    return dst;
+  }
+
+  // CPU 通用转换 (CUDA 上仅支持 fp16<->fp32 直转, 其余先回 CPU)
+  if (is_cuda()) {
+    throw std::runtime_error(
+        "CastTo on CUDA: only FLOAT16<->FLOAT32 supported");
+  }
+  switch (dtype_) {
+    case DataType::INT8: CastLoop<int8_t, float>(sp, dp, n);
+      // 再 cast 到 target? 简化: 只支持转到 fp32
+      if (target != DataType::FLOAT32) throw std::runtime_error("CastTo: unsupported");
+      break;
+    default: throw std::runtime_error("CastTo: unsupported source dtype");
+  }
+  return dst;
+}
+
 }  // namespace core
 }  // namespace axono
+
