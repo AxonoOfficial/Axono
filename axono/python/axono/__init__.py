@@ -80,6 +80,7 @@ __author__ = "ByteRainLab"
 __description__ = "High performance computing library for big data processing"
 
 from .fused import add_rms_norm, silu_mul  # noqa: F401
+from .gqa import gqa_decode_attention  # noqa: F401
 
 __all__ = [
     "DataType",
@@ -144,6 +145,7 @@ __all__ = [
     "compile",
     "silu_mul",
     "add_rms_norm",
+    "gqa_decode_attention",
     "nn",
     "welcome",
 ]

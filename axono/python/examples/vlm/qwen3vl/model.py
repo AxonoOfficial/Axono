@@ -306,11 +306,20 @@ class Qwen3VLVisionModel(nn.Module):
 # 文本塔
 # ---------------------------------------------------------------------------
 class Qwen3VLTextAttention(nn.Module):
-    def __init__(self, hidden: int, n_head: int, n_kv: int, d_head: int, device=None):
+    def __init__(
+        self,
+        hidden: int,
+        n_head: int,
+        n_kv: int,
+        d_head: int,
+        use_gqa: bool = True,
+        device=None,
+    ):
         super().__init__()
         self.n_head = n_head
         self.n_kv = n_kv
         self.d_head = d_head
+        self.use_gqa = use_gqa
         self.q_proj = nn.Linear(hidden, n_head * d_head, bias=False, device=device)
         self.k_proj = nn.Linear(hidden, n_kv * d_head, bias=False, device=device)
         self.v_proj = nn.Linear(hidden, n_kv * d_head, bias=False, device=device)
@@ -356,7 +365,11 @@ class Qwen3VLTextAttention(nn.Module):
             is_causal = seq == int(k.shape[0])
         else:
             is_causal = True
-        attn = axono.scaled_dot_product_attention(q, k, v, is_causal)
+        if self.use_gqa and seq == 1 and cache is not None and int(k.shape[0]) > 1:
+            # decode (q_len=1): GQA split-K 优化 kernel (flash-decoding)
+            attn = axono.gqa_decode_attention(q, k, v)
+        else:
+            attn = axono.scaled_dot_product_attention(q, k, v, is_causal)
         return self.o_proj(attn.reshape((seq, self.n_head * self.d_head)))
 
 
@@ -380,6 +393,7 @@ class Qwen3VLDecoderLayer(nn.Module):
         d_head: int,
         inter: int,
         eps: float,
+        use_gqa: bool = True,
         device=None,
     ):
         super().__init__()
@@ -387,7 +401,7 @@ class Qwen3VLDecoderLayer(nn.Module):
         self.input_layernorm = nn.RMSNorm(hidden, eps=eps, device=device)
         self.post_attention_layernorm = nn.RMSNorm(hidden, eps=eps, device=device)
         self.self_attn = Qwen3VLTextAttention(
-            hidden, n_head, n_kv, d_head, device=device
+            hidden, n_head, n_kv, d_head, use_gqa=use_gqa, device=device
         )
         self.mlp = Qwen3VLTextMLP(hidden, inter, device=device)
 
@@ -423,7 +437,7 @@ class Qwen3VLDecoderLayer(nn.Module):
 
 
 class Qwen3VLTextModel(nn.Module):
-    def __init__(self, cfg: dict, device=None):
+    def __init__(self, cfg: dict, use_gqa: bool = True, device=None):
         super().__init__()
         t = cfg["text_config"]
         self.cfg_t = t
@@ -449,6 +463,7 @@ class Qwen3VLTextModel(nn.Module):
                 self.d_head,
                 self.inter,
                 self.eps,
+                use_gqa=use_gqa,
                 device=device,
             )
             for _ in range(self.layers_n)
@@ -533,7 +548,9 @@ class Qwen3VLTextModel(nn.Module):
 class Qwen3VLForConditionalGeneration(nn.Module):
     """Torch 风格封装: 视觉塔 + 文本塔, 从 pixels+ids 到 logits。"""
 
-    def __init__(self, config_path: str, device: str | None = None):
+    def __init__(
+        self, config_path: str, use_gqa: bool = True, device: str | None = None
+    ):
         super().__init__()
         device = device or ("cuda" if axono.cuda_available() else "cpu")
         axono.set_backend(device)
@@ -541,7 +558,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
         with open(config_path) as f:
             self.config = json.load(f)
         self.visual = Qwen3VLVisionModel(self.config, device=device)
-        self.text = Qwen3VLTextModel(self.config, device=device)
+        self.text = Qwen3VLTextModel(self.config, use_gqa=use_gqa, device=device)
 
     def load_hf_weights(self, model_dir: str) -> None:
         sd = load_hf_state_dict(model_dir)
