@@ -186,6 +186,22 @@ __global__ void Float2HalfKernel(const float *__restrict__ src,
 
 }  // namespace
 
+__global__ void CastCopyF16ToF32Kernel(const void *__restrict__ src,
+                                       float *__restrict__ dst, size_t n) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < n) dst[idx] = __half2float(static_cast<const __half *>(src)[idx]);
+}
+
+// fp16 src → fp32 dst 直拷合并 (省一次中间分配 + 一次拷贝 kernel)
+core::Status DispatchCastCopyF16F32(core::Tensor &dst, const core::Tensor &src) {
+  const size_t n = src.num_elements();
+  if (n == 0) return core::Status::OK;
+  const dim3 grid(static_cast<unsigned>((n + 255) / 256));
+  CastCopyF16ToF32Kernel<<<grid, 256, 0, axono::core::cuda::AxonoCurrentStream()>>>(
+      src.data(), dst.data<float>(), n);
+  return core::Status::OK;
+}
+
 core::Status DispatchCastF16F32(core::Tensor &dst, const core::Tensor &src) {
   const size_t n = src.num_elements();
   if (n == 0) return core::Status::OK;

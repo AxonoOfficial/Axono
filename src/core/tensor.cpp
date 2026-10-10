@@ -452,8 +452,9 @@ Tensor Tensor::CastTo(DataType target) const {
                      target == DataType::FLOAT16))) {
     Status st = cuda::tensor::DispatchCastF16F32(dst, *this);
     if (st != Status::OK) throw std::runtime_error("CastTo CUDA failed");
-    if (cuda::MaybeSync() != cudaSuccess)
-      throw std::runtime_error("CastTo CUDA sync failed");
+    // 不在此同步: cast 提交到当前流, 后续 kernel 同流序依赖;
+    // 每 cast 强制 deviceSync 会在热路径 (每步数百次 cast) 产生
+    // 数百次全设备同步, 成为 decode 主要开销。
     return dst;
   }
 #endif
