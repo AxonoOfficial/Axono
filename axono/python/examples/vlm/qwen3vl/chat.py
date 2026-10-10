@@ -76,8 +76,14 @@ class Qwen3VLChat:
             use_gqa=self.use_gqa,
             device=device,
         )
-        print(f"加载权重 ({device}) ...")
-        self.model.load_hf_weights(model_dir)
+        axm = os.path.join(model_dir, "model.axm")
+        if os.path.exists(axm):
+            print(f"加载 .axm 权重 ({device}) ...")
+            self.model.load_axm_weights(axm)
+        else:
+            print(f"加载 HF 权重 ({device}) ... (提示: 用 convert.py 转 "
+                  f".axm 可大幅加快加载)")
+            self.model.load_hf_weights(model_dir)
         self.model.eval()
         self.eos_token_id = self.processor.tokenizer.eos_token_id
         self.im_end_id = self.processor.tokenizer.convert_tokens_to_ids("<|im_end|>")

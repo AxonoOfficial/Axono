@@ -585,6 +585,30 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             }
         )
 
+    def load_axm_weights(self, axm_path: str) -> None:
+        """加载 .axm 原生权重 (memmap 零拷贝 + 设备直拷, 显著快于 HF 路径)。
+
+        fp16 存储的张量在此转回 fp32 (ndarray astype 后仍走批量拷贝)。
+        """
+        from axono.format import AxmReader
+
+        reader = AxmReader(axm_path)
+        prefix_map = {"model.visual.": self.visual,
+                      "model.language_model.": self.text}
+        bufs = {p: {} for p in prefix_map}
+        for name in reader.names():
+            for prefix, module in prefix_map.items():
+                if name.startswith(prefix):
+                    arr = reader.get(name)
+                    if arr.dtype != np.float32:
+                        arr = arr.astype(np.float32)
+                    bufs[prefix][name[len(prefix):]] = arr
+                    break
+            else:
+                raise KeyError(f".axm 中存在模型不需要的张量: {name}")
+        for prefix, module in prefix_map.items():
+            module.load_state_dict(bufs[prefix])
+
     def _prefill_states(
         self,
         pixels,
