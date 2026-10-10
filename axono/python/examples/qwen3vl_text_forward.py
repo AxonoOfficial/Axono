@@ -48,11 +48,23 @@ def tokenizer_encode(text: str) -> list:
     raise NotImplementedError
 
 
-def qwen3_text_forward(w: dict, ids: list, device: str, cfg: dict) -> np.ndarray:
-    """Qwen3 文本主干前向, 返回最后位置 hidden state 投影后的 logits。
-    结构: embed -> [rmsnorm -> qkv(+q/k norm) -> rope -> GQA attention ->
-    o_proj + 残差 -> rmsnorm -> SwiGLU mlp + 残差] x 28 -> final rmsnorm ->
-    logits = hidden @ embed_tokens^T (tied)
+def qwen3_text_forward(
+    w: dict,
+    ids: list,
+    device: str,
+    cfg: dict,
+    hidden: np.ndarray | None = None,
+    deepstack: list | None = None,
+    image_positions: np.ndarray | None = None,
+    mrope_pos3: np.ndarray | None = None,
+) -> np.ndarray:
+    """Qwen3 文本主干前向, 返回 logits (numpy, (1, seq, vocab))。
+
+    hidden: 可选预计算 embedding (1, seq, hidden), 替代 ids 的 embedding
+            (用于端到端: 已替换 image token 位置为视觉特征)。
+    deepstack: 可选 list of ndarray (n_img, hidden) — 加到前 len(deepstack)
+            层输出的 image token 位置 (HF _deepstack_process 约定)。
+    image_positions: image token 在序列中的位置索引 (int64)。
     """
     t = cfg.get("text_config", cfg)
     n_head = t["num_attention_heads"]
@@ -63,8 +75,11 @@ def qwen3_text_forward(w: dict, ids: list, device: str, cfg: dict) -> np.ndarray
     theta = float(t["rope_theta"])
 
     seq = len(ids)
-    ids_t = _ids(ids, device)
-    h = axono.embedding(ids_t, w["model.language_model.embed_tokens.weight"])
+    if hidden is not None:
+        h = to_t2(hidden, device)  # (1, seq, hidden)
+    else:
+        ids_t = _ids(ids, device)
+        h = axono.embedding(ids_t, w["model.language_model.embed_tokens.weight"])
     pos = _arange(seq, device)
 
     for li in range(layers):
@@ -99,8 +114,13 @@ def qwen3_text_forward(w: dict, ids: list, device: str, cfg: dict) -> np.ndarray
         k = _head_norm(
             k, w[f"{p}.self_attn.k_norm.weight"], eps, seq, n_kv, d_head, device
         )
-        q = axono.rope(q, pos, theta)
-        k = axono.rope(k, pos, theta)
+        if mrope_pos3 is not None:
+            mc, ms = mrope_cos_sin(mrope_pos3, theta, d_head)
+            q = rope_cs(q, mc, ms, device)
+            k = rope_cs(k, mc, ms, device)
+        else:
+            q = axono.rope(q, pos, theta)
+            k = axono.rope(k, pos, theta)
         attn = axono.scaled_dot_product_attention(q, k, v, True)
         attn = _reshape2(attn, seq, n_head * d_head, device)
         attn_out = axono.linear_nobias(attn, w[f"{p}.self_attn.o_proj.weight"])
@@ -113,6 +133,17 @@ def qwen3_text_forward(w: dict, ids: list, device: str, cfg: dict) -> np.ndarray
             axono.mul(axono.silu(gate), up), w[f"{p}.mlp.down_proj.weight"]
         )
         h = axono.add(h, mlp)
+        # deepstack: 前 len(deepstack) 层输出后, 在 image token 位置加视觉特征
+        if deepstack is not None and li < len(deepstack):
+            h_np = h.to("cpu").to_numpy() if device != "cpu" else h.to_numpy()
+            ds_np = (
+                deepstack[li].to("cpu").to_numpy()
+                if not isinstance(deepstack[li], np.ndarray)
+                else deepstack[li]
+            )
+            for j, ip in enumerate(image_positions):
+                h_np[ip] += ds_np[j]
+            h = to_t2(h_np, device)
 
     h = axono.rms_norm(h, w["model.language_model.norm.weight"], eps)
     # tied embedding: logits = h @ E^T — 用 linear (E 作为 weight)
@@ -129,6 +160,45 @@ def _ids(arr, device):
 
 def _arange(seq, device):
     return _ids(np.arange(seq), device)
+
+
+def to_t2(arr, device):
+    t = axono.Tensor.from_numpy(np.ascontiguousarray(arr.astype(np.float32)))
+    return t.to(device) if device != "cpu" else t
+
+
+def mrope_cos_sin(pos3: np.ndarray, theta: float, d_head: int):
+    """M-RoPE cos/sin。pos3: (3, seq) int64。返回 (seq, d_head) cos/sin。
+
+    HF 约定 (Qwen3VLTextRotaryEmbedding.recomposition_frequencies):
+    每维 freqs = pos * inv_freq (half 个列); 重排 = 以 T 维为基础,
+    H 覆盖 idx = 1..(section[1]*3) step 3, W 覆盖 idx = 2..(section[2]*3)
+    step 3, 其余保持 T (交错 stride-3 布局, Qwen3-VL-2B
+    mrope_section = [24, 20, 20] @ half=64); 最后 cat(f, f)。
+    """
+    inv_freq = 1.0 / (theta ** (np.arange(0, d_head, 2, dtype=np.float32) / d_head))
+    freqs = (
+        pos3[:, :, None].astype(np.float32) * inv_freq[None, None, :]
+    )  # (3, seq, half)
+    sec = [24, 20, 20]
+    out = freqs[0].copy()  # (seq, half) — T 为基础
+    idx_h = np.arange(1, sec[1] * 3, 3)
+    idx_w = np.arange(2, sec[2] * 3, 3)
+    out[:, idx_h] = freqs[1][:, idx_h]
+    out[:, idx_w] = freqs[2][:, idx_w]
+    angles = np.concatenate([out, out], axis=-1)
+    return np.cos(angles), np.sin(angles)
+
+
+def rope_cs(t3, cos, sin, device):
+    """half-split rotate, cos/sin (seq, d_head) 按 head 广播。t3: (seq, heads, d_head)。"""
+    arr = t3.to("cpu").to_numpy() if device != "cpu" else t3.to_numpy()
+    seq, heads, d_head = arr.shape
+    half = d_head // 2
+    c = cos[:, None, :]
+    s = sin[:, None, :]
+    rot = np.concatenate([-arr[..., half:], arr[..., :half]], axis=-1)
+    return to_t2(arr * c + rot * s, device)
 
 
 def _reshape3(t, seq, heads, d_head, device):
