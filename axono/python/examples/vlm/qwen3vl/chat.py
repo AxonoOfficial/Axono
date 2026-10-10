@@ -32,7 +32,9 @@ import numpy as np
 
 import axono
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from examples.vlm.qwen3vl.model import (  # noqa: E402
     Qwen3VLForConditionalGeneration,
@@ -56,6 +58,7 @@ class Qwen3VLChat:
         max_new_tokens: int = 256,
         use_kv_cache: bool = True,
         kv_cache_factory=None,
+        use_gqa: bool = True,
     ):
         from transformers import AutoProcessor
 
@@ -63,12 +66,15 @@ class Qwen3VLChat:
         self.model_dir = model_dir
         self.use_kv_cache = use_kv_cache
         self.kv_cache_factory = kv_cache_factory
+        self.use_gqa = use_gqa and axono.cuda_available()
         device = device or ("cuda" if axono.cuda_available() else "cpu")
         self.device = device
 
         self.processor = AutoProcessor.from_pretrained(model_dir)
         self.model = Qwen3VLForConditionalGeneration(
-            os.path.join(model_dir, "config.json"), device=device
+            os.path.join(model_dir, "config.json"),
+            use_gqa=self.use_gqa,
+            device=device,
         )
         print(f"加载权重 ({device}) ...")
         self.model.load_hf_weights(model_dir)
@@ -179,6 +185,7 @@ def interactive(args):
         args.device,
         args.max_new_tokens,
         use_kv_cache=not args.no_kv_cache,
+        use_gqa=not args.no_gqa,
     )
     print("进入交互模式 (输入 quit 退出; 用 /image <path> 设置图片)。\n")
     image_path = args.image
@@ -194,7 +201,7 @@ def interactive(args):
         if prompt in ("quit", "exit", "/quit"):
             break
         if prompt.startswith("/image "):
-            image_path = prompt[len("/image "):].strip()
+            image_path = prompt[len("/image ") :].strip()
             print(f"已设置图片: {image_path}")
             continue
         print("助手> ", end="", flush=True)
@@ -208,6 +215,11 @@ def main() -> int:
     ap.add_argument("--image", default=None)
     ap.add_argument("--prompt", default=None, help="单次问答; 省略则进交互模式")
     ap.add_argument("--max-new-tokens", type=int, default=256)
+    ap.add_argument(
+        "--no-gqa",
+        action="store_true",
+        help="关闭 GQA decode 优化 kernel (回退通用 SDPA)",
+    )
     ap.add_argument(
         "--no-kv-cache",
         action="store_true",
@@ -225,6 +237,7 @@ def main() -> int:
             args.device,
             args.max_new_tokens,
             use_kv_cache=not args.no_kv_cache,
+            use_gqa=not args.no_gqa,
         )
         print("助手> ", end="", flush=True)
         chat.chat(args.prompt, args.image, stream=True)

@@ -39,6 +39,7 @@
 #ifdef AXONO_WITH_CUDA
 #include "axono/ops/cuda/elementwise.h"
 #include "axono/ops/cuda/fused.h"
+#include "axono/ops/cuda/gqa.h"
 #include "axono/ops/cuda/linear.h"
 #include "axono/ops/cuda/llm.h"
 #include "axono/ops/cuda/sequence.h"
@@ -873,6 +874,20 @@ NB_MODULE(libaxono, m) {
         nb::arg("x"), nb::arg("pos"), nb::arg("inv_freq"), nb::arg("t_sec"),
         nb::arg("h_sec"), nb::arg("w_sec"),
         nb::sig("def rope_thd(x, pos, inv_freq, t_sec, h_sec, w_sec) -> Tensor"));
+
+#ifdef AXONO_WITH_CUDA
+  m.def("gqa_decode_attention",
+        [](const core::Tensor &q, const core::Tensor &k, const core::Tensor &v) {
+          core::Tensor result(q.dtype(), q.shape(), q.device());
+          core::Status st = ops::cuda::GqaDecodeAttention(core::Context(), q, k, v, result);
+          if (st != core::Status::OK)
+            throw std::runtime_error("gqa_decode_attention 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return result;
+        },
+        nb::arg("q"), nb::arg("k"), nb::arg("v"),
+        nb::sig("def gqa_decode_attention(q, k, v) -> Tensor"));
+#endif
 
   m.def("silu_mul",
         [](const core::Tensor &gate, const core::Tensor &up) {
