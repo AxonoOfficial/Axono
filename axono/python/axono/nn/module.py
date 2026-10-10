@@ -27,17 +27,26 @@ class Module:
         return module
 
     def __setattr__(self, name: str, value):
-        """自动注册: Module 属性 -> 子模块; Tensor -> 参数。"""
+        """自动注册: Module 属性 -> 子模块; Tensor -> 参数;
+        list/tuple of Module -> 带索引的子模块集合 (Torch ModuleList 语义)。"""
         if name.startswith("_") or name in ("training",):
             object.__setattr__(self, name, value)
             return
         submods = self.__dict__.get("_submodules")
-        if isinstance(value, Module) and submods is not None:
-            submods[name] = value
-        elif isinstance(value, Tensor):
-            params = self.__dict__.get("_parameters")
-            if params is not None:
-                params[name] = value
+        if submods is not None:
+            if isinstance(value, Module):
+                submods[name] = value
+            elif (
+                isinstance(value, (list, tuple))
+                and value
+                and all(isinstance(v, Module) for v in value)
+            ):
+                for i, v in enumerate(value):
+                    submods[f"{name}.{i}"] = v
+            elif isinstance(value, Tensor):
+                params = self.__dict__.get("_parameters")
+                if params is not None:
+                    params[name] = value
         object.__setattr__(self, name, value)
 
     def add_weight(self, name: str, tensor: Tensor) -> None:
@@ -59,7 +68,7 @@ class Module:
 
     def weights(self):
         """返回所有参数 Tensor 的列表 (含子模块, 按注册顺序)。"""
-        weights = list(self._parameters.values())
+        weights = [t for t in self._parameters.values() if t is not None]
         for sub in self._submodules.values():
             weights.extend(sub.weights())
         return weights
@@ -71,6 +80,38 @@ class Module:
     @property
     def bias(self):
         return self._parameters["bias"]
+
+    def state_dict(self) -> dict:
+        """返回 {扁平名: Tensor} 参数字典 (含子模块, 点号连接)。"""
+        return dict(self.parameters())
+
+    def load_state_dict(self, sd: dict, strict: bool = True) -> None:
+        """从 {扁平名: Tensor|ndarray} 加载参数 (原地 copy, 保持设备)。"""
+        import numpy as np
+
+        params = self.parameters()
+        missing = []
+        for name, t in params.items():
+            if t is None:
+                continue  # 无 bias 层 (bias=False)
+            if name not in sd:
+                missing.append(name)
+                continue
+            v = sd[name]
+            if not isinstance(v, Tensor):
+                v = Tensor.from_numpy(np.ascontiguousarray(v.astype(np.float32)))
+            src = (
+                v.to("cpu").to_numpy()
+                if v.device != "cpu" and v.device
+                else v.to_numpy()
+            )
+            if t.device != "cpu" and t.device:
+                dst = Tensor.from_numpy(np.ascontiguousarray(src)).to(t.device)
+                t.copy_from(dst)
+            else:
+                t.copy_from_numpy(src)
+        if strict and missing:
+            raise KeyError(f"state_dict 缺少参数: {missing}")
 
     def train(self, mode: bool = True) -> "Module":
         self._is_training = mode

@@ -1,4 +1,4 @@
+from .layers import Embedding, LayerNorm, Linear, RMSNorm
 from .module import Module
-from .layers import Linear
 
-__all__ = ["Module", "Linear"]
+__all__ = ["Module", "Linear", "LayerNorm", "RMSNorm", "Embedding"]
