@@ -26,7 +26,7 @@ import os
 import numpy as np
 
 import axono
-from axono import nn
+from axono import Tensor, nn
 
 IMAGE_TOKEN_ID = 151655
 
@@ -593,16 +593,20 @@ class Qwen3VLForConditionalGeneration(nn.Module):
         from axono.format import AxmReader
 
         reader = AxmReader(axm_path)
-        prefix_map = {"model.visual.": self.visual,
-                      "model.language_model.": self.text}
+        prefix_map = {"model.visual.": self.visual, "model.language_model.": self.text}
         bufs = {p: {} for p in prefix_map}
+        keepalive = []
         for name in reader.names():
             for prefix, module in prefix_map.items():
                 if name.startswith(prefix):
                     arr = reader.get(name)
                     if arr.dtype != np.float32:
                         arr = arr.astype(np.float32)
-                    bufs[prefix][name[len(prefix):]] = arr
+                    # 零拷贝借用 memmap 内存: load_state_dict 里
+                    # Tensor.to(cuda) 直接从文件映射 DMA, 省去 host 中转。
+                    t = Tensor.from_numpy_ref(np.ascontiguousarray(arr))
+                    keepalive.append(arr)
+                    bufs[prefix][name[len(prefix) :]] = t
                     break
             else:
                 raise KeyError(f".axm 中存在模型不需要的张量: {name}")

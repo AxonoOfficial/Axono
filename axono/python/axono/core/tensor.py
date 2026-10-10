@@ -101,6 +101,21 @@ def _tensor_from_numpy(cls, array: np.ndarray) -> "Tensor":
     return tensor
 
 
+def _tensor_from_numpy_ref(array: np.ndarray) -> "Tensor":
+    """零拷贝借用 numpy 内存构造 CPU Tensor (不复制)。
+
+    返回的 Tensor 直接引用 array 的内存: 适合 mmap 权重加载
+    (memmap → ref Tensor → to(cuda) 一步 DMA, 省去 host 中转拷贝)。
+    生命周期: nanobind keep_alive 使 Tensor 持有 array 引用;
+    写入该 Tensor 会改写源数组 (共享内存), 数组须 C 连续 fp32/int64。
+    """
+    # np.asarray: memmap/子类 → 基类 ndarray 视图 (零拷贝), 让 nanobind 
+    # 的 nb::ndarray 签名能匹配。
+    arr = np.asarray(array)
+    name = "from_borrowed_i64" if arr.dtype == np.int64 else "from_borrowed"
+    return getattr(Tensor, name)(arr)
+
+
 def _tensor_to_device(self, device: str) -> "Tensor":
     """torch 语义: 同设备 to() 返回自身 (零拷贝); 跨设备走 C++ 迁移。"""
     if device == self.device:
@@ -280,6 +295,7 @@ def _attach() -> None:
 
     # classmethod / staticmethod 工厂
     Tensor.from_numpy = classmethod(_tensor_from_numpy)
+    Tensor.from_numpy_ref = staticmethod(_tensor_from_numpy_ref)
     Tensor.randn = staticmethod(_tensor_randn)
     Tensor.zeros = staticmethod(_tensor_zeros)
     Tensor.ones = staticmethod(_tensor_ones)

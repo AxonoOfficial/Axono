@@ -134,6 +134,14 @@ Tensor Tensor::FromData(DataType dtype, const Shape &shape, void *data) {
   return Tensor(dtype, shape, data);
 }
 
+Tensor Tensor::FromBorrowed(DataType dtype, const Shape &shape,
+                            const void *data) {
+  Tensor t(dtype, shape);
+  // no-op deleter: 借用内存, 析构不释放 (生命周期由调用方管理)。
+  t.data_ = std::shared_ptr<void>(const_cast<void *>(data), [](void *) {});
+  return t;
+}
+
 Tensor Tensor::to(const std::string &target_device) const {
   if (device_ == target_device) {
     // torch 语义: 同设备 to() 返回自身 (共享 storage, 零拷贝)。

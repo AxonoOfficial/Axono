@@ -17,13 +17,13 @@
     PYTHONPATH=. python -m examples.vlm.qwen3vl.benchmark_torch --device cuda
 """
 
+from .chat import Qwen3VLChat  # noqa: F401
 from .model import (  # noqa: F401
     Qwen3VLForConditionalGeneration,
     Qwen3VLTextModel,
     Qwen3VLVisionModel,
     load_hf_state_dict,
 )
-from .chat import Qwen3VLChat  # noqa: F401
 
 __all__ = [
     "Qwen3VLForConditionalGeneration",

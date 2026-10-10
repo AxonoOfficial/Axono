@@ -22,7 +22,9 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from examples.vlm.qwen3vl.model import (  # noqa: E402
     IMAGE_TOKEN_ID,
@@ -58,9 +60,9 @@ def main() -> int:
     n = grid_h * grid_w
     want = n // (v["spatial_merge_size"] ** 2)
     rng = np.random.default_rng(42)
-    pixels = rng.standard_normal(
-        (n, 3, v["temporal_patch_size"], patch, patch)
-    ).astype(np.float32)
+    pixels = rng.standard_normal((n, 3, v["temporal_patch_size"], patch, patch)).astype(
+        np.float32
+    )
 
     from tokenizers import Tokenizer
 
@@ -99,9 +101,7 @@ def main() -> int:
     rel = err / np.abs(ref_lg).max()
     print(f"端到端 logits max_abs_err = {err:.4e} (rel {rel:.2e})")
     print("HF Top-5:", np.argsort(-ref_lg)[:5].tolist())
-    ok = err < 5e-2 and np.array_equal(
-        np.argsort(-last)[:1], np.argsort(-ref_lg)[:1]
-    )
+    ok = err < 5e-2 and np.array_equal(np.argsort(-last)[:1], np.argsort(-ref_lg)[:1])
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

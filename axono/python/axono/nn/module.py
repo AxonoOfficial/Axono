@@ -104,10 +104,9 @@ class Module:
                 continue
             v = sd[name]
             if isinstance(v, Tensor):
-                if v.device == t.device:
-                    t.copy_from(v)
-                else:
-                    t.copy_from(v.to(t.device))
+                # CopyFrom 支持跨设备直拷 (H2D/D2D/D2H 内部直达),
+                # 无需先 to(device) 造临时 GPU 张量 (那会多一次拷贝)。
+                t.copy_from(v)
                 continue
             if v.dtype != np.float32:
                 v = np.ascontiguousarray(v, dtype=np.float32)

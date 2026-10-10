@@ -216,6 +216,34 @@ NB_MODULE(libaxono, m) {
                   nb::arg("device") = "cpu", nb::arg("mean") = 0.0f,
                   nb::arg("stddev") = 1.0f)
       .def_static("create_like", &core::Tensor::CreateLike)
+      .def_static(
+          "from_borrowed",
+          [](nb::ndarray<nb::numpy, nb::c_contig, nb::ro> arr) {
+            core::Shape shape;
+            for (size_t i = 0; i < arr.ndim(); ++i)
+              shape.push_back(static_cast<size_t>(arr.shape(i)));
+            if (arr.dtype() != nb::dtype<float>()) {
+              throw std::runtime_error("from_borrowed: 仅支持 FLOAT32");
+            }
+            return core::Tensor::FromBorrowed(core::DataType::FLOAT32, shape,
+                                              arr.data());
+          },
+          nb::arg("array"), nb::keep_alive<0, 1>(),
+          nb::sig("def from_borrowed(array) -> Tensor"))
+      .def_static(
+          "from_borrowed_i64",
+          [](nb::ndarray<nb::numpy, nb::c_contig, nb::ro> arr) {
+            core::Shape shape;
+            for (size_t i = 0; i < arr.ndim(); ++i)
+              shape.push_back(static_cast<size_t>(arr.shape(i)));
+            if (arr.dtype() != nb::dtype<int64_t>()) {
+              throw std::runtime_error("from_borrowed_i64: 仅支持 INT64");
+            }
+            return core::Tensor::FromBorrowed(core::DataType::INT64, shape,
+                                              arr.data());
+          },
+          nb::arg("array"), nb::keep_alive<0, 1>(),
+          nb::sig("def from_borrowed_i64(array) -> Tensor"))
       .def("to", [](const core::Tensor &self, const std::string &device) {
              return self.to(device);
            }, nb::arg("device"))
