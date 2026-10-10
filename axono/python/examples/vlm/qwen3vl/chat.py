@@ -59,6 +59,7 @@ class Qwen3VLChat:
         use_kv_cache: bool = True,
         kv_cache_factory=None,
         use_gqa: bool = True,
+        fp16_linear: bool = False,
     ):
         from transformers import AutoProcessor
 
@@ -67,6 +68,7 @@ class Qwen3VLChat:
         self.use_kv_cache = use_kv_cache
         self.kv_cache_factory = kv_cache_factory
         self.use_gqa = use_gqa and axono.cuda_available()
+        self.fp16_linear = fp16_linear
         device = device or ("cuda" if axono.cuda_available() else "cpu")
         self.device = device
 
@@ -86,6 +88,9 @@ class Qwen3VLChat:
                 f".axm 可大幅加快加载)"
             )
             self.model.load_hf_weights(model_dir)
+        if self.fp16_linear and device == "cuda":
+            print("启用 FP16 Linear (tensor-core 混合推理) ...")
+            self.model.enable_fp16_linear()
         self.model.eval()
         self.eos_token_id = self.processor.tokenizer.eos_token_id
         self.im_end_id = self.processor.tokenizer.convert_tokens_to_ids("<|im_end|>")
@@ -194,6 +199,7 @@ def interactive(args):
         args.max_new_tokens,
         use_kv_cache=not args.no_kv_cache,
         use_gqa=not args.no_gqa,
+        fp16_linear=args.fp16_linear,
     )
     print("进入交互模式 (输入 quit 退出; 用 /image <path> 设置图片)。\n")
     image_path = args.image
@@ -229,6 +235,11 @@ def main() -> int:
         help="关闭 GQA decode 优化 kernel (回退通用 SDPA)",
     )
     ap.add_argument(
+        "--fp16-linear",
+        action="store_true",
+        help="启用 FP16 Linear 混合推理 (tensor core, 权重显存减半)",
+    )
+    ap.add_argument(
         "--no-kv-cache",
         action="store_true",
         help="关闭 KV cache (每步重跑整段前向, 与旧版行为一致)",
@@ -246,6 +257,7 @@ def main() -> int:
             args.max_new_tokens,
             use_kv_cache=not args.no_kv_cache,
             use_gqa=not args.no_gqa,
+            fp16_linear=args.fp16_linear,
         )
         print("助手> ", end="", flush=True)
         chat.chat(args.prompt, args.image, stream=True)

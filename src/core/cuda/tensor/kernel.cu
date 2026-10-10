@@ -1,4 +1,5 @@
 // Axono/src/core/cuda/tensor/tensor.cu
+#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <iostream>
 #include <cstring>
@@ -168,4 +169,40 @@ template core::Status TensorReadKernel<int8_t>(const int8_t*, int8_t*, size_t);
 template core::Status TensorReadKernel<int64_t>(const int64_t*, int64_t*, size_t);
 template core::Status TensorReadKernel<bool>(const bool*, bool*, size_t);
 
+
+namespace {
+
+__global__ void Half2FloatKernel(const __half *__restrict__ src,
+                                 float *__restrict__ dst, size_t n) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < n) dst[idx] = __half2float(src[idx]);
+}
+
+__global__ void Float2HalfKernel(const float *__restrict__ src,
+                                 __half *__restrict__ dst, size_t n) {
+  const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < n) dst[idx] = __float2half(src[idx]);
+}
+
+}  // namespace
+
+core::Status DispatchCastF16F32(core::Tensor &dst, const core::Tensor &src) {
+  const size_t n = src.num_elements();
+  if (n == 0) return core::Status::OK;
+  const dim3 grid(static_cast<unsigned>((n + 255) / 256));
+  cudaStream_t s = axono::core::cuda::AxonoCurrentStream();
+  if (src.dtype() == DataType::FLOAT16 && dst.dtype() == DataType::FLOAT32) {
+    Half2FloatKernel<<<grid, 256, 0, s>>>(
+        static_cast<const __half *>(src.data()),
+        dst.data<float>(), n);
+    return core::Status::OK;
+  }
+  if (src.dtype() == DataType::FLOAT32 && dst.dtype() == DataType::FLOAT16) {
+    Float2HalfKernel<<<grid, 256, 0, s>>>(
+        src.data<float>(),
+        static_cast<__half *>(dst.data()), n);
+    return core::Status::OK;
+  }
+  return core::Status::UNSUPPORTED_TYPE;
+}
 }

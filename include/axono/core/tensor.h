@@ -79,6 +79,12 @@ class Tensor {
   // 从另一张量拷贝数据 (设备间自动中转), 元素数须一致
   Status CopyFrom(const Tensor &src);
 
+  // 类型转换 (返回新 Tensor, 同设备)。支持 FLOAT16<->FLOAT32 及标量互转。
+  Tensor CastTo(DataType target) const;
+
+  // 初始化数据存储 (按 dtype/shape/device 分配并清零)
+  void InitializeStorage();
+
   // 形状操作
   Status Reshape(const Shape &new_shape);
   Status Resize(const Shape &new_shape);
@@ -111,8 +117,6 @@ class Tensor {
   size_t num_elements_ = 0;
   std::shared_ptr<void> data_;
 
-  // 初始化数据存储
-  void InitializeStorage();
 };
 
 }  // namespace core

@@ -560,6 +560,13 @@ class Qwen3VLForConditionalGeneration(nn.Module):
         self.visual = Qwen3VLVisionModel(self.config, device=device)
         self.text = Qwen3VLTextModel(self.config, use_gqa=use_gqa, device=device)
 
+    def enable_fp16_linear(self) -> None:
+        """Linear 权重转 fp16 常驻 (tensor-core 混合推理, 显存减半)。
+
+        加载权重之后、推理之前调用; 输入输出 dtype 不变 (fp32)。
+        """
+        self.cast_linear_fp16()
+
     def load_hf_weights(self, model_dir: str) -> None:
         sd = load_hf_state_dict(model_dir)
         sd = {

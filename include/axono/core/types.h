@@ -15,7 +15,16 @@ enum class DeviceType {
   CUDA,
 };
 // 基础数据类型枚举
-enum class DataType { INT8, INT16, INT32, INT64, FLOAT32, FLOAT64, BOOLEAN };
+enum class DataType {
+  INT8,
+  INT16,
+  INT32,
+  INT64,
+  FLOAT16,
+  FLOAT32,
+  FLOAT64,
+  BOOLEAN
+};
 
 // 获取数据类型大小
 inline size_t GetDataTypeSize(DataType dtype) {
@@ -28,6 +37,8 @@ inline size_t GetDataTypeSize(DataType dtype) {
       return 4;
     case DataType::INT64:
       return 8;
+    case DataType::FLOAT16:
+      return 2;
     case DataType::FLOAT32:
       return 4;
     case DataType::FLOAT64:

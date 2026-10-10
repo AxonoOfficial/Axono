@@ -7,6 +7,7 @@ from typing import Dict
 from libaxono import Module as _Module
 
 from ..core import Tensor
+from ..core.tensor import DataType
 
 
 class Module:
@@ -119,6 +120,27 @@ class Module:
                 t.copy_from_numpy(v)
         if strict and missing:
             raise KeyError(f"state_dict 缺少参数: {missing}")
+
+    def cast_linear_fp16(self) -> None:
+        """把本模块树内所有 Linear 的 weight/bias 原地转为 FLOAT16 常驻。
+
+        之后 Linear 前向自动走 fp16 tensor-core 混合路径 (输入输出仍是
+        fp32, 内部 cast), 显存权重部分减半, gemm 提速。
+        """
+        from .layers import Linear  # 局部导入避免循环依赖
+
+        stack = [self]
+        while stack:
+            m = stack.pop()
+            stack.extend(m._submodules.values())
+            if not isinstance(m, Linear):
+                continue
+            for pname, t in list(m._parameters.items()):
+                if t is None or t.dtype == DataType.FLOAT16:
+                    continue
+                t16 = t.cast_to(DataType.FLOAT16)
+                m._parameters[pname] = t16
+                m._cpp_module.add_weight(pname, t16)
 
     def train(self, mode: bool = True) -> "Module":
         self._is_training = mode

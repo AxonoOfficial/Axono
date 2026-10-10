@@ -12,6 +12,7 @@
 
 #include <cublasLt.h>
 #include <cublas_v2.h>
+#include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
 #include <atomic>
@@ -86,11 +87,11 @@ std::mutex &AlgoCacheMutex() {
 }
 
 // 每种 dtype 一个独立缓存 (static 局部量): 用 int tag 区分
-// 0=float, 1=double, 由调用方 (LtGemm 特化) 传入。
+// 0=float, 1=double, 2=fp16, 由调用方 (LtGemm 特化) 传入。
 std::unordered_map<ShapeKey, cublasLtMatmulAlgo_t, ShapeKeyHash>
     &AlgoCacheGet(int tag) {
   static std::unordered_map<ShapeKey, cublasLtMatmulAlgo_t, ShapeKeyHash>
-      caches[2];
+      caches[3];
   return caches[tag];
 }
 
@@ -310,6 +311,85 @@ cublasStatus_t LtGemm<double>(cublasOperation_t op_b, cublasOperation_t op_a,
   cublasLtMatmulDescDestroy(op_desc);
   return status;
 }
+cublasStatus_t LtGemmF16(cublasOperation_t op_b, cublasOperation_t op_a,
+                         int n, int m, int k, const __half *alpha,
+                         const __half *b, int ldb, const __half *a,
+                         int lda, const __half *beta, __half *c, int ldc,
+                         cudaStream_t stream) {
+  cublasLtHandle_t lt = GetLtHandle();
+  cublasLtMatmulDesc_t op_desc = nullptr;
+  cublasLtMatmulPreference_t pref = nullptr;
+  cublasLtMatmulHeuristicResult_t heuristic{};
+  int returned = 0;
+  cublasStatus_t status = CUBLAS_STATUS_SUCCESS;
+
+  // 16F 输入输出 + 16F 累加 (V100 tensor core; 先用最保守 16F compute 
+  // 保证兼容, 精度由测试把关)
+  if (cublasLtMatmulDescCreate(&op_desc, CUBLAS_COMPUTE_16F, CUDA_R_16F) !=
+      CUBLAS_STATUS_SUCCESS) {
+    return CUBLAS_STATUS_INTERNAL_ERROR;
+  }
+  if (cublasLtMatmulDescSetAttribute(op_desc, CUBLASLT_MATMUL_DESC_TRANSA,
+                                     &op_b, sizeof(op_b)) !=
+      CUBLAS_STATUS_SUCCESS) {
+    cublasLtMatmulDescDestroy(op_desc);
+    return CUBLAS_STATUS_INTERNAL_ERROR;
+  }
+  if (cublasLtMatmulDescSetAttribute(op_desc, CUBLASLT_MATMUL_DESC_TRANSB,
+                                     &op_a, sizeof(op_a)) !=
+      CUBLAS_STATUS_SUCCESS) {
+    cublasLtMatmulDescDestroy(op_desc);
+    return CUBLAS_STATUS_INTERNAL_ERROR;
+  }
+  if (cublasLtMatmulPreferenceCreate(&pref) != CUBLAS_STATUS_SUCCESS) {
+    cublasLtMatmulDescDestroy(op_desc);
+    return CUBLAS_STATUS_INTERNAL_ERROR;
+  }
+  void *ws = GetLtWorkspace();
+  size_t ws_size = ws ? LT_WORKSPACE_SIZE : 0;
+  if (ws) {
+    cublasLtMatmulPreferenceSetAttribute(pref,
+                                         CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+                                         &ws_size, sizeof(ws_size));
+  }
+
+  cublasLtMatrixLayout_t la = nullptr, lb = nullptr, lc = nullptr;
+  do {
+    if (cublasLtMatrixLayoutCreate(&lb, CUDA_R_16F, op_b == CUBLAS_OP_N ? n : k,
+                                   op_b == CUBLAS_OP_N ? k : n, ldb) !=
+        CUBLAS_STATUS_SUCCESS) { status = CUBLAS_STATUS_INTERNAL_ERROR; break; }
+    if (cublasLtMatrixLayoutCreate(&la, CUDA_R_16F, op_a == CUBLAS_OP_N ? k : m,
+                                   op_a == CUBLAS_OP_N ? m : k, lda) !=
+        CUBLAS_STATUS_SUCCESS) { status = CUBLAS_STATUS_INTERNAL_ERROR; break; }
+    if (cublasLtMatrixLayoutCreate(&lc, CUDA_R_16F, n, m, ldc) !=
+        CUBLAS_STATUS_SUCCESS) { status = CUBLAS_STATUS_INTERNAL_ERROR; break; }
+
+    // tag=2 (float=0, double=1)
+    constexpr int kTag = 2;
+    cublasLtMatmulAlgo_t algo;
+    if (!AlgoCacheFind(kTag, n, m, k, &algo)) {
+      if (cublasLtMatmulAlgoGetHeuristic(lt, op_desc, lb, la, lc, lc, pref,
+                                         1, &heuristic, &returned) !=
+              CUBLAS_STATUS_SUCCESS ||
+          returned == 0) {
+        status = CUBLAS_STATUS_NOT_SUPPORTED;
+        break;
+      }
+      algo = heuristic.algo;
+      AlgoCachePut(kTag, n, m, k, algo);
+    }
+
+    status = cublasLtMatmul(lt, op_desc, alpha, b, lb, a, la, beta, c,
+                            lc, c, lc, &algo, ws, ws_size, stream);
+  } while (false);
+
+  if (la) cublasLtMatrixLayoutDestroy(la);
+  if (lb) cublasLtMatrixLayoutDestroy(lb);
+  if (lc) cublasLtMatrixLayoutDestroy(lc);
+  cublasLtMatmulPreferenceDestroy(pref);
+  cublasLtMatmulDescDestroy(op_desc);
+  return status;
+}
 
 }  // namespace
 
@@ -349,6 +429,25 @@ bool TryLtGemmF64(int n, int m, int k, const double *alpha, const double *b,
     // transa 作用于 b 指针 (即 LtGemm 的 op_b), 供 Linear 等 W^T gemm 使用
     return LtGemm<double>(transa, CUBLAS_OP_N, n, m, k, alpha, b, ldb, a,
                           lda, beta, c, ldc, stream) == CUBLAS_STATUS_SUCCESS;
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+// FP16 gemm: 16F 输入/输出 + 32F 累加 (tensor core)。beta 固定 1.0
+// (调用方先把 result 初始化为 bias 或 0)。
+bool TryLtGemmF16(int n, int m, int k, const __half *b, int ldb,
+                  const __half *a, int lda, __half *c, int ldc,
+                  cudaStream_t stream, cublasOperation_t transa = CUBLAS_OP_N,
+                  float beta = 1.0f) {
+  if (!g_use_lt.load()) return false;
+  std::lock_guard<std::mutex> lock(LtMutex());
+  try {
+    const __half alpha_one = __half(1.0f);
+    const __half beta_h = __half(beta);
+    return LtGemmF16(transa, CUBLAS_OP_N, n, m, k, &alpha_one, b, ldb, a,
+                     lda, &beta_h, c, ldc, stream) ==
+           CUBLAS_STATUS_SUCCESS;
   } catch (const std::exception &) {
     return false;
   }
