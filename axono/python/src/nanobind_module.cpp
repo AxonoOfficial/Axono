@@ -319,12 +319,14 @@ NB_MODULE(libaxono, m) {
            }, nb::rv_policy::reference_internal);
 
   // ---- 算子 (自由函数) ----
+#ifdef AXONO_WITH_CUDA
   // 缓存池诊断 (显存占用排查)
   m.def("cached_bytes",
         []() { return axono::core::cuda::GetCachedBytes(); });
   m.def("set_cache_budget", [](size_t bytes) {
     axono::core::cuda::SetCacheBudget(bytes);
   });
+#endif
   m.def("add", [](const core::Tensor &a, const core::Tensor &b) {
     if (check_device_match(a, b) != core::Status::OK)
       throw std::runtime_error("add: 输入张量不在同一设备上");
