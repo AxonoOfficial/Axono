@@ -11,6 +11,7 @@
 #include <string>
 
 #include "axono/core/cuda/capture.h"
+#include "axono/core/cuda/tensor/kernel.h"
 #include "axono/core/cuda/stream.h"
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
