@@ -29,22 +29,27 @@ from .elementwise import (
     tanh,
 )
 from .llm import (
-    argmax,
-    concat,
-    embedding,
     gelu,
+    gelu_tanh,
     layer_norm,
     linear,
     linear_nobias,
     log_softmax,
     rms_norm,
-    rope,
-    scaled_dot_product_attention,
     silu,
-    slice_,
     softmax,
 )
 from .relu import relu, relu_
+from .sequence import (
+    argmax,
+    concat,
+    embedding,
+    rope,
+    rope_thd,
+    rope_with_cos_sin,
+    scaled_dot_product_attention,
+    slice_,
+)
 
 __all__ = [
     "relu",
@@ -68,6 +73,7 @@ __all__ = [
     "softmax",
     "log_softmax",
     "gelu",
+    "gelu_tanh",
     "silu",
     "layer_norm",
     "rms_norm",
@@ -75,6 +81,8 @@ __all__ = [
     "linear_nobias",
     "embedding",
     "rope",
+    "rope_with_cos_sin",
+    "rope_thd",
     "scaled_dot_product_attention",
     "concat",
     "slice_",

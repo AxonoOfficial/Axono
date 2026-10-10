@@ -9,7 +9,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""LLM 相关算子: softmax/log_softmax/gelu/silu/layer_norm/rms_norm。
+"""LLM 相关算子: softmax/log_softmax/gelu/gelu_tanh/silu/layer_norm/rms_norm。
 
 全部走 libaxono 绑定 (CPU/CUDA 后端自动分派), 非原地。
 """
@@ -32,6 +32,11 @@ def log_softmax(x):
 def gelu(x):
     """GELU 激活 (精确 erf 式): 0.5*x*(1+erf(x/sqrt(2)))"""
     return _l.gelu(x)
+
+
+def gelu_tanh(x):
+    """GELU 激活 (tanh 近似式): 0.5*x*(1+tanh(sqrt(2/pi)(x+0.044715x^3)))"""
+    return _l.gelu_tanh(x)
 
 
 def silu(x):
@@ -63,36 +68,14 @@ def linear_nobias(x, weight):
     return _l.linear_nobias(x, weight)
 
 
-def embedding(ids, table):
-    """查表 embedding: ``table[ids]``, ids 任意形状 (INT64)"""
-    return _l.embedding(ids, table)
-
-
-def rope(x, pos_ids, theta: float = 10000.0):
-    """旋转位置编码: x (seq, heads, head_dim) 按 pos_ids 旋转 (FLOAT32)"""
-    return _l.rope(x, pos_ids, theta)
-
-
-def scaled_dot_product_attention(q, k, v, is_causal: bool = False):
-    """缩放点积注意力 (GQA): softmax(QK^T/sqrt(d)+mask) @ V
-
-    q: (seq, n_q_heads, head_dim); k/v: (kv_seq, n_kv_heads, head_dim)
-    """
-    return _l.scaled_dot_product_attention(q, k, v, is_causal)
-
-
-def concat(a, b, axis: int):
-    """沿 axis 拼接两个同 dtype 张量"""
-    return _l.concat(a, b, axis)
-
-
-def slice_(x, axis: int, start: int, length: int):
-    """沿 axis 取 [start, start+length) 连续切片"""
-    if axis < 0:
-        axis = x.ndim + axis
-    return _l.slice(x, axis, start, length)
-
-
-def argmax(x):
-    """沿最后一维 argmax, 返回 INT64"""
-    return _l.argmax(x)
+__all__ = [
+    "softmax",
+    "log_softmax",
+    "gelu",
+    "gelu_tanh",
+    "silu",
+    "layer_norm",
+    "rms_norm",
+    "linear",
+    "linear_nobias",
+]
