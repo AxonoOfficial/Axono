@@ -29,11 +29,13 @@ from .core.backend import (
     set_backend,
     set_matmul_backend,
 )
+from .core.compile import compile
 from .core.config import (
     is_inplace_enabled,
     set_inplace_enabled,
 )
 from .core.cuda_graph import CUDAGraph, cuda_graph
+from .core.operators import add, div, matmul, maximum, minimum, mul, pow, sub
 from .core.ops import (
     abs,
     argmax,
@@ -50,6 +52,7 @@ from .core.ops import (
     linear_nobias,
     log,
     log_softmax,
+    mrope_cos_sin,
     neg,
     reciprocal,
     relu,
@@ -71,11 +74,12 @@ from .core.ops import (
     square,
     tanh,
 )
-from .core.operators import add, div, matmul, maximum, minimum, mul, pow, sub
 
 __version__ = "0.2.0"
 __author__ = "ByteRainLab"
 __description__ = "High performance computing library for big data processing"
+
+from .fused import add_rms_norm, silu_mul  # noqa: F401
 
 __all__ = [
     "DataType",
@@ -117,6 +121,7 @@ __all__ = [
     "rms_norm",
     "linear",
     "linear_nobias",
+    "mrope_cos_sin",
     "embedding",
     "rope",
     "rope_with_cos_sin",
@@ -136,6 +141,9 @@ __all__ = [
     "get_matmul_backend",
     "CUDAGraph",
     "cuda_graph",
+    "compile",
+    "silu_mul",
+    "add_rms_norm",
     "nn",
     "welcome",
 ]

@@ -366,6 +366,58 @@ core::Status RopeWithCosSin(const core::Context &ctx, const core::Tensor &x,
   return Finish();
 }
 
+// M-RoPE 的 cos/sin 表: pos3 (3, seq) -> cos/sin (seq, dim), 交错 stride-3
+// 频率重组 (T 基础, H/W 覆盖 idx%3==1/2 至各自 section*3), 与 HF 等价。
+// 输出为 concat([ang, ang]) 的 cos/sin (即 dim 维, 前后两半相同)。
+__global__ void MropeCosSinKernel(const int64_t *pos, const float *inv_freq,
+                                  float *cos_out, float *sin_out,
+                                  size_t rows, size_t half, size_t h_lim,
+                                  size_t w_lim) {
+  const size_t r = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (r >= rows) return;
+  const float pt = static_cast<float>(pos[r]);
+  const float ph = static_cast<float>(pos[rows + r]);
+  const float pw = static_cast<float>(pos[2 * rows + r]);
+  float *cr = cos_out + r * (2 * half);
+  float *sr = sin_out + r * (2 * half);
+  for (size_t i = 0; i < half; ++i) {
+    const float f = inv_freq[i];
+    float angle = pt * f;
+    if (i % 3 == 1 && i < h_lim)
+      angle = ph * f;
+    else if (i % 3 == 2 && i < w_lim)
+      angle = pw * f;
+    const float c = cosf(angle);
+    const float sn = sinf(angle);
+    cr[i] = c;
+    cr[i + half] = c;
+    sr[i] = sn;
+    sr[i + half] = sn;
+  }
+}
+
+core::Status MropeCosSin(const core::Context &ctx, const core::Tensor &pos,
+                         const core::Tensor &inv_freq, int h_sec, int w_sec,
+                         core::Tensor &cos_out, core::Tensor &sin_out) {
+  (void)ctx;
+  if (pos.ndim() != 2 || pos.shape()[0] != 3 || pos.dtype() != core::DataType::INT64)
+    return core::Status::SHAPE_MISMATCH;
+  const size_t rows = pos.shape()[1];
+  const size_t half = inv_freq.shape()[0];
+  if (half == 0) return core::Status::INVALID_ARGUMENT;
+  core::Status st = cos_out.Resize({rows, 2 * half});
+  if (st != core::Status::OK) return st;
+  st = sin_out.Resize({rows, 2 * half});
+  if (st != core::Status::OK) return st;
+  const size_t h_lim = static_cast<size_t>(h_sec) * 3;
+  const size_t w_lim = static_cast<size_t>(w_sec) * 3;
+  MropeCosSinKernel<<<static_cast<unsigned>((rows + kBlock - 1) / kBlock),
+                      kBlock, 0, Stream()>>>(
+      pos.data<int64_t>(), inv_freq.data<float>(), cos_out.data<float>(),
+      sin_out.data<float>(), rows, half, h_lim, w_lim);
+  return Finish();
+}
+
 core::Status RopeThd(const core::Context &ctx, const core::Tensor &x,
                      const core::Tensor &pos, const core::Tensor &inv_freq,
                      int t_sec, int h_sec, int w_sec, core::Tensor &result) {

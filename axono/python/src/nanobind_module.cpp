@@ -20,6 +20,7 @@
 #ifdef AXONO_WITH_CUDA
 #include "axono/core/cuda/capture.h"
 #include "axono/core/cuda/capture_pool.h"
+#include "axono/core/cuda/detail.h"
 #include "axono/core/cuda/graph.h"
 #include "axono/core/cuda/tensor/kernel.h"
 #include "axono/ops/cuda/add.h"
@@ -29,6 +30,7 @@
 #endif
 #include "axono/ops/cpu/add.h"
 #include "axono/ops/cpu/elementwise.h"
+#include "axono/ops/cpu/fused.h"
 #include "axono/ops/cpu/linear.h"
 #include "axono/ops/cpu/llm.h"
 #include "axono/ops/cpu/sequence.h"
@@ -36,6 +38,7 @@
 #include "axono/ops/cpu/relu.h"
 #ifdef AXONO_WITH_CUDA
 #include "axono/ops/cuda/elementwise.h"
+#include "axono/ops/cuda/fused.h"
 #include "axono/ops/cuda/linear.h"
 #include "axono/ops/cuda/llm.h"
 #include "axono/ops/cuda/sequence.h"
@@ -318,6 +321,14 @@ NB_MODULE(libaxono, m) {
            }, nb::rv_policy::reference_internal);
 
   // ---- 算子 (自由函数) ----
+#ifdef AXONO_WITH_CUDA
+  // 缓存池诊断 (显存占用排查)
+  m.def("cached_bytes",
+        []() { return axono::core::cuda::GetCachedBytes(); });
+  m.def("set_cache_budget", [](size_t bytes) {
+    axono::core::cuda::SetCacheBudget(bytes);
+  });
+#endif
   m.def("add", [](const core::Tensor &a, const core::Tensor &b) {
     if (check_device_match(a, b) != core::Status::OK)
       throw std::runtime_error("add: 输入张量不在同一设备上");
@@ -862,6 +873,78 @@ NB_MODULE(libaxono, m) {
         nb::arg("x"), nb::arg("pos"), nb::arg("inv_freq"), nb::arg("t_sec"),
         nb::arg("h_sec"), nb::arg("w_sec"),
         nb::sig("def rope_thd(x, pos, inv_freq, t_sec, h_sec, w_sec) -> Tensor"));
+
+  m.def("silu_mul",
+        [](const core::Tensor &gate, const core::Tensor &up) {
+          core::Tensor result(gate.dtype(), gate.shape(), gate.device());
+          core::Status st;
+          if (gate.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::SiluMul(core::Context(), gate, up, result);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::SiluMul(core::Context(), gate, up, result);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("silu_mul 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return result;
+        },
+        nb::arg("gate"), nb::arg("up"),
+        nb::sig("def silu_mul(gate, up) -> Tensor"));
+
+  m.def("add_rms_norm",
+        [](const core::Tensor &x, const core::Tensor &residual,
+           const core::Tensor &weight, float eps) {
+          core::Tensor y(x.dtype(), x.shape(), x.device());
+          core::Tensor out(x.dtype(), x.shape(), x.device());
+          core::Status st;
+          if (x.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::AddRmsNorm(core::Context(), x, residual, weight,
+                                       eps, y, out);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::AddRmsNorm(core::Context(), x, residual, weight,
+                                      eps, y, out);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("add_rms_norm 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return nb::make_tuple(y, out);
+        },
+        nb::arg("x"), nb::arg("residual"), nb::arg("weight"), nb::arg("eps"),
+        nb::sig("def add_rms_norm(x, residual, weight, eps) -> (Tensor, Tensor)"));
+
+  m.def("mrope_cos_sin",
+        [](const core::Tensor &pos, const core::Tensor &inv_freq, int h_sec,
+           int w_sec) {
+          core::Tensor cos_out(core::DataType::FLOAT32, {}, pos.device());
+          core::Tensor sin_out(core::DataType::FLOAT32, {}, pos.device());
+          core::Status st;
+          if (pos.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
+                                        w_sec, cos_out, sin_out);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
+                                       w_sec, cos_out, sin_out);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("mrope_cos_sin 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return nb::make_tuple(cos_out, sin_out);
+        },
+        nb::arg("pos"), nb::arg("inv_freq"), nb::arg("h_sec"),
+        nb::arg("w_sec"),
+        nb::sig("def mrope_cos_sin(pos, inv_freq, h_sec, w_sec) -> (Tensor, Tensor)"));
 
   m.def("scaled_dot_product_attention",
         [&](const core::Tensor &q, const core::Tensor &k,
