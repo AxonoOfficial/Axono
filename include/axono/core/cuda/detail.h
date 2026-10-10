@@ -32,6 +32,13 @@ std::shared_ptr<void> deep_copy_cuda_memory(const void* src, size_t bytes);
 void ClearDeviceCache();
 
 }  // namespace detail
+
+// 缓存池预算 (字节): 归还超预算时按 FIFO 淘汰最旧空闲块。0 = 不限。
+void SetCacheBudget(size_t bytes);
+size_t GetCacheBudget();
+// 当前缓存池占用的空闲字节数 (诊断用)
+size_t GetCachedBytes();
+
 }  // namespace cuda
 }  // namespace core
 }  // namespace axono

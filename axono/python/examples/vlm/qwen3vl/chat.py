@@ -42,18 +42,27 @@ DEFAULT_MODEL = "/root/autodl-tmp/qwen3vl-2b"
 
 
 class Qwen3VLChat:
-    """Qwen3-VL 对话封装: 模型 + processor + 贪心自回归生成。"""
+    """Qwen3-VL 对话封装: 模型 + processor + 贪心自回归生成。
+
+    use_kv_cache: 开启 KV cache (默认开; prefill 一次, 每步只算新 token)。
+    kv_cache_factory: 自定义 KV Cache 组件工厂 () -> nn.KVCache;
+        传入后优先于默认 DynamicKVCache。
+    """
 
     def __init__(
         self,
         model_dir: str = DEFAULT_MODEL,
         device: str | None = None,
         max_new_tokens: int = 256,
+        use_kv_cache: bool = True,
+        kv_cache_factory=None,
     ):
         from transformers import AutoProcessor
 
         self.max_new_tokens = max_new_tokens
         self.model_dir = model_dir
+        self.use_kv_cache = use_kv_cache
+        self.kv_cache_factory = kv_cache_factory
         device = device or ("cuda" if axono.cuda_available() else "cpu")
         self.device = device
 
@@ -104,22 +113,54 @@ class Qwen3VLChat:
         return logits[-1]
 
     def chat(self, prompt: str, image_path: str | None = None, stream: bool = True):
-        """单轮对话, 返回生成的文本。"""
+        """单轮对话, 返回生成的文本。
+
+        KV cache 开启时: prefill 一次 + 逐 token decode (流式输出);
+        关闭时: 朴素逐步整段重算 (与旧版行为一致, 可用于对照)。
+        """
         ids, pixels, grid = self._encode(prompt, image_path)
         n_prompt = len(ids)
         out = list(ids)
         text_out = []
         t0 = time.time()
-        for step in range(self.max_new_tokens):
-            last = self._decode_step(out, pixels, grid)
-            nxt = int(np.argmax(last))
-            if nxt == self.eos_token_id or nxt == self.im_end_id:
-                break
-            out.append(nxt)
-            piece = self.processor.tokenizer.decode([nxt], skip_special_tokens=True)
-            text_out.append(piece)
-            if stream:
-                print(piece, end="", flush=True)
+
+        if self.use_kv_cache:
+            if pixels is None:
+                raise ValueError("纯文本对话尚未支持: 请提供 --image")
+            gt, gh, gw = (int(v) for v in grid)
+            cache = (
+                self.kv_cache_factory() if self.kv_cache_factory is not None else None
+            )
+            logits_t, cache, rope_delta = self.model.prefill(
+                pixels, gt, gh, gw, ids, kv_cache=cache
+            )
+            last = (
+                logits_t.to("cpu").to_numpy()
+                if self.device != "cpu"
+                else logits_t.to_numpy()
+            )
+            for step in range(self.max_new_tokens):
+                nxt = int(np.argmax(last[-1]))
+                if nxt == self.eos_token_id or nxt == self.im_end_id:
+                    break
+                out.append(nxt)
+                piece = self.processor.tokenizer.decode([nxt], skip_special_tokens=True)
+                text_out.append(piece)
+                if stream:
+                    print(piece, end="", flush=True)
+                if step + 1 < self.max_new_tokens:
+                    last = self.model.decode_step(nxt, cache, len(out) - 1, rope_delta)
+        else:
+            for step in range(self.max_new_tokens):
+                last = self._decode_step(out, pixels, grid)
+                nxt = int(np.argmax(last))
+                if nxt == self.eos_token_id or nxt == self.im_end_id:
+                    break
+                out.append(nxt)
+                piece = self.processor.tokenizer.decode([nxt], skip_special_tokens=True)
+                text_out.append(piece)
+                if stream:
+                    print(piece, end="", flush=True)
         if stream:
             print()
         dt = time.time() - t0
@@ -133,7 +174,12 @@ class Qwen3VLChat:
 
 
 def interactive(args):
-    chat = Qwen3VLChat(args.model, args.device, args.max_new_tokens)
+    chat = Qwen3VLChat(
+        args.model,
+        args.device,
+        args.max_new_tokens,
+        use_kv_cache=not args.no_kv_cache,
+    )
     print("进入交互模式 (输入 quit 退出; 用 /image <path> 设置图片)。\n")
     image_path = args.image
     if image_path:
@@ -162,6 +208,11 @@ def main() -> int:
     ap.add_argument("--image", default=None)
     ap.add_argument("--prompt", default=None, help="单次问答; 省略则进交互模式")
     ap.add_argument("--max-new-tokens", type=int, default=256)
+    ap.add_argument(
+        "--no-kv-cache",
+        action="store_true",
+        help="关闭 KV cache (每步重跑整段前向, 与旧版行为一致)",
+    )
     args = ap.parse_args()
 
     if args.device == "cuda" and not axono.cuda_available():
@@ -169,7 +220,12 @@ def main() -> int:
         args.device = "cpu"
 
     if args.prompt is not None:
-        chat = Qwen3VLChat(args.model, args.device, args.max_new_tokens)
+        chat = Qwen3VLChat(
+            args.model,
+            args.device,
+            args.max_new_tokens,
+            use_kv_cache=not args.no_kv_cache,
+        )
         print("助手> ", end="", flush=True)
         chat.chat(args.prompt, args.image, stream=True)
         return 0

@@ -1,6 +1,7 @@
 // Axono/src/core/cuda/detail.cu
 #include <cuda_runtime.h>
 #include <stdexcept>
+#include <deque>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -26,12 +27,67 @@ namespace detail {
 //
 // 线程安全: 全局 mutex (分配本身不频繁到需要分片)。
 // 与图捕获的关系: 捕获路径完全绕过本池 (走 capture_pool 预分配), 互不影响。
+//
+// 池上限与淘汰 (OOM 防护):
+//   自回归解码 (无 KV cache, 序列每步 +1) 会产生源源不断的新尺寸张量,
+//   旧尺寸桶永不再命中 → 池单调增长直至 OOM (V100 实测每步 ~100MB)。
+//   防护三件套:
+//     1) 总字节预算 CacheBudgetBytes (默认 2 GiB, 可经 SetCacheBudget 调):
+//        归还超预算时按 FIFO 淘汰最旧空闲块 (cudaFree 回驱动);
+//     2) 单尺寸桶上限 kMaxBlocksPerSize (8): 同尺寸空闲块过多直接 free;
+//     3) 兜底: cudaMalloc 失败时清空整个池重试一次 (动态 shape 场景下
+//        空闲块占着大量显存是失败主因, 释放后即可成功)。
 namespace {
 std::mutex g_free_mutex;
+constexpr size_t kDefaultCacheBudget = 2ull << 30;  // 2 GiB
+constexpr size_t kMaxBlocksPerSize = 8;
+size_t g_cache_budget = kDefaultCacheBudget;
+size_t g_cached_bytes = 0;
+
 std::unordered_map<size_t, std::vector<void*>>& FreeMap() {
   static std::unordered_map<size_t, std::vector<void*>>* m =
       new std::unordered_map<size_t, std::vector<void*>>();
   return *m;
+}
+
+// FIFO 淘汰序: 每次归还 push 记录 (bytes, ptr 的引用由 FreeMap 持有)
+std::deque<std::pair<size_t, void*>>& EvictOrder() {
+  static std::deque<std::pair<size_t, void*>>* q =
+      new std::deque<std::pair<size_t, void*>>();
+  return *q;
+}
+
+// 从 EvictOrder 移除指定块 (归还命中/手工摘除时调用)
+void RemoveFromEvictOrder(size_t bytes, void* ptr) {
+  auto& q = EvictOrder();
+  for (auto it = q.begin(); it != q.end(); ++it) {
+    if (it->first == bytes && it->second == ptr) {
+      q.erase(it);
+      return;
+    }
+  }
+}
+
+// 驱逐到预算内 (持锁调用)。返回释放的字节数。
+size_t EvictToBudgetLocked() {
+  size_t freed = 0;
+  auto& q = EvictOrder();
+  while (g_cached_bytes > g_cache_budget && !q.empty()) {
+    auto [bytes, ptr] = q.front();
+    q.pop_front();
+    auto& vec = FreeMap()[bytes];
+    for (auto it = vec.begin(); it != vec.end(); ++it) {
+      if (*it == ptr) {
+        vec.erase(it);
+        break;
+      }
+    }
+    if (vec.empty()) FreeMap().erase(bytes);
+    cudaFree(ptr);
+    g_cached_bytes -= bytes;
+    freed += bytes;
+  }
+  return freed;
 }
 
 void* CacheAcquire(size_t bytes) {
@@ -41,18 +97,57 @@ void* CacheAcquire(size_t bytes) {
   if (it == m.end() || it->second.empty()) return nullptr;
   void* ptr = it->second.back();
   it->second.pop_back();
+  RemoveFromEvictOrder(bytes, ptr);
+  g_cached_bytes -= bytes;
+  if (it->second.empty()) m.erase(it);
   return ptr;
 }
 }  // namespace
 }  // namespace detail
 
+// 池预算 (字节)。0 = 不限 (不推荐: 动态 shape 场景会 OOM)。
+void SetCacheBudget(size_t bytes) {
+  std::lock_guard<std::mutex> lk(detail::g_free_mutex);
+  detail::g_cache_budget = bytes;
+  detail::EvictToBudgetLocked();
+}
+size_t GetCacheBudget() {
+  std::lock_guard<std::mutex> lk(detail::g_free_mutex);
+  return detail::g_cache_budget;
+}
+size_t GetCachedBytes() {
+  std::lock_guard<std::mutex> lk(detail::g_free_mutex);
+  return detail::g_cached_bytes;
+}
+
 // 释放时归还缓存池 (供 detail.cu 内的 deleter 调用)
 void ReturnToCache(size_t bytes, void* ptr) {
   std::lock_guard<std::mutex> lk(detail::g_free_mutex);
-  detail::FreeMap()[bytes].push_back(ptr);
+  auto too_many = [&]() {
+    auto it = detail::FreeMap().find(bytes);
+    return it != detail::FreeMap().end() &&
+           it->second.size() >= detail::kMaxBlocksPerSize;
+  };
+  auto over_budget = [&]() {
+    return detail::g_cache_budget != 0 &&
+           detail::g_cached_bytes + bytes > detail::g_cache_budget;
+  };
+  if (too_many() || over_budget()) {
+    // 桶满或超预算: 先尝试驱逐旧块 (保住热块), 仍不行则直接还给驱动
+    if (detail::g_cache_budget != 0) detail::EvictToBudgetLocked();
+    if (too_many() || over_budget()) {
+      cudaFree(ptr);
+      return;
+    }
+  }
+  detail::FreeMap()[bytes].push_back(ptr);  // 上面已确保桶存在/不空
+  detail::g_cached_bytes += bytes;
+  detail::EvictOrder().emplace_back(bytes, ptr);
 }
 
 namespace detail {
+
+void ClearDeviceCache();  // 前向声明 (定义在文件后部)
 
 // CUDA设备内存分配实现
 std::shared_ptr<void> CudaAllocateStorage(size_t bytes, const std::string& device) {
@@ -135,7 +230,13 @@ std::shared_ptr<void> CudaAllocateStorage(size_t bytes, const std::string& devic
     }
     err = cudaMalloc(&dev_ptr, bytes);
     if (err != cudaSuccess) {
-      throw std::bad_alloc();
+      // 兜底: 动态 shape 场景下空闲块占着大量显存是失败主因 ——
+      // 清空整个缓存池 (全部 cudaFree 回驱动) 后重试一次。
+      ClearDeviceCache();
+      err = cudaMalloc(&dev_ptr, bytes);
+      if (err != cudaSuccess) {
+        throw std::bad_alloc();
+      }
     }
 
     // 初始化为0 (捕获中异步, 同样入图)
@@ -179,6 +280,8 @@ void ClearDeviceCache() {
   {
     std::lock_guard<std::mutex> lk(g_free_mutex);
     drained.swap(FreeMap());
+    g_cached_bytes = 0;
+    EvictOrder().clear();
   }
   for (auto& kv : drained) {
     for (void* ptr : kv.second) cudaFree(ptr);

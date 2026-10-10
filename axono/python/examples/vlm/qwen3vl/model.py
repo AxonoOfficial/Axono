@@ -318,7 +318,17 @@ class Qwen3VLTextAttention(nn.Module):
         self.q_norm = nn.RMSNorm(d_head, eps=1e-6, device=device)
         self.k_norm = nn.RMSNorm(d_head, eps=1e-6, device=device)
 
-    def forward(self, x, seq, inv_freq_t, mrope_section, pos_t, device):
+    def forward(
+        self,
+        x,
+        seq,
+        inv_freq_t,
+        mrope_section,
+        pos_t,
+        device,
+        cache=None,
+        layer_idx=0,
+    ):
         if pos_t is None:
             # 纯文本: 顺序位置 rope
             pos = axono.Tensor.zeros((seq,), dtype=axono.DataType.INT64, device=device)
@@ -338,7 +348,15 @@ class Qwen3VLTextAttention(nn.Module):
             k = axono.rms_norm(k, self.k_norm.weight, self.k_norm.eps)
             q = axono.rope_thd(q, pos_t, inv_freq_t, mrope_section)
             k = axono.rope_thd(k, pos_t, inv_freq_t, mrope_section)
-        attn = axono.scaled_dot_product_attention(q, k, v, True)
+        if cache is not None:
+            # KV cache 路径: k/v 追加进 cache, 注意力对「全历史」做 (非因果,
+            # decode 时 q_len=1 只看过去; prefill 时 q_len=seq 自身即因果)。
+            cache.update(layer_idx, k, v)
+            k, v = cache.get(layer_idx)
+            is_causal = seq == int(k.shape[0])
+        else:
+            is_causal = True
+        attn = axono.scaled_dot_product_attention(q, k, v, is_causal)
         return self.o_proj(attn.reshape((seq, self.n_head * self.d_head)))
 
 
@@ -372,9 +390,31 @@ class Qwen3VLDecoderLayer(nn.Module):
         )
         self.mlp = Qwen3VLTextMLP(hidden, inter, device=device)
 
-    def forward(self, h, seq, inv_freq_t, mrope_section, pos_t, device):
+    def forward(
+        self,
+        h,
+        seq,
+        inv_freq_t,
+        mrope_section,
+        pos_t,
+        device,
+        cache=None,
+        layer_idx=0,
+    ):
         xn = self.input_layernorm(h)
-        h = axono.add(h, self.self_attn(xn, seq, inv_freq_t, mrope_section, pos_t, device))
+        h = axono.add(
+            h,
+            self.self_attn(
+                xn,
+                seq,
+                inv_freq_t,
+                mrope_section,
+                pos_t,
+                device,
+                cache=cache,
+                layer_idx=layer_idx,
+            ),
+        )
         xn2 = self.post_attention_layernorm(h)
         h = axono.add(h, self.mlp(xn2))
         return h
@@ -428,21 +468,49 @@ class Qwen3VLTextModel(nn.Module):
         h = self.norm(h)
         return axono.linear_nobias(h, self.embed_tokens.weight)
 
-    def forward_layers(self, h, seq, inv_freq_t, section, pos_t, device):
+    def forward_layers(self, h, seq, inv_freq_t, section, pos_t, device, cache=None):
         """逐层前向 (m-rope 版, 供外部注入 deepstack)。"""
-        for layer in self.layers:
-            h = layer.forward(h, seq, inv_freq_t, section, pos_t, device)
+        for li, layer in enumerate(self.layers):
+            h = layer.forward(
+                h,
+                seq,
+                inv_freq_t,
+                section,
+                pos_t,
+                device,
+                cache=cache,
+                layer_idx=li,
+            )
         return h
 
     def forward_layers_with_deepstack(
-        self, h, seq, inv_freq_t, section, pos_t, deepstack, img_start, want, device
+        self,
+        h,
+        seq,
+        inv_freq_t,
+        section,
+        pos_t,
+        deepstack,
+        img_start,
+        want,
+        device,
+        cache=None,
     ):
         """逐层前向; 每层完整 (attn+mlp) 之后注入 deepstack (HF 语义)。"""
         pre = img_start
         post = seq - (img_start + want)
         ds_n = len(deepstack)
         for li, layer in enumerate(self.layers):
-            h = layer.forward(h, seq, inv_freq_t, section, pos_t, device)
+            h = layer.forward(
+                h,
+                seq,
+                inv_freq_t,
+                section,
+                pos_t,
+                device,
+                cache=cache,
+                layer_idx=li,
+            )
             if li < ds_n:
                 segs = []
                 if pre:
@@ -536,6 +604,106 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             ds = None
         return h_t, inv_freq_t, pos_t, img_start, want, ds
 
+    # ------------------------------------------------------------------
+    # KV cache 路径: prefill (整段) + decode (单 token) 两段式
+    # ------------------------------------------------------------------
+    def create_kv_cache(self, cache=None):
+        """创建 KV cache (可传入自定义 nn.KVCache 组件)。"""
+        if cache is None:
+            cache = nn.DynamicKVCache(self.text.layers_n, device=self.device)
+        return cache
+
+    def _run_text_layers(
+        self, h_t, seq, inv_freq_t, pos_t, ds, img_start, want, device, cache
+    ):
+        if ds is not None:
+            return self.text.forward_layers_with_deepstack(
+                h_t,
+                seq,
+                inv_freq_t,
+                self.text.mrope_section,
+                pos_t,
+                ds,
+                img_start,
+                want,
+                device,
+                cache=cache,
+            )
+        return self.text.forward_layers(
+            h_t,
+            seq,
+            inv_freq_t,
+            self.text.mrope_section,
+            pos_t,
+            device,
+            cache=cache,
+        )
+
+    def prefill(
+        self,
+        pixels: np.ndarray,
+        grid_t: int,
+        grid_h: int,
+        grid_w: int,
+        ids,
+        deepstack: bool = True,
+        kv_cache=None,
+    ):
+        """整段 prompt 一次前向, k/v 写入 cache; 返回 (last_logits, cache, rope_delta)。
+
+        rope_delta = HF get_rope_index 语义: 图像段 3D 位置比 1D 索引膨胀
+        max(h, w)-1, decode 时文本位置 = 绝对索引 + rope_delta。
+        """
+        cache = self.create_kv_cache(kv_cache)
+        device = self.device
+        seq = len(ids)
+        h_t, inv_freq_t, pos_t, img_start, want, ds = self._prefill_states(
+            pixels, grid_t, grid_h, grid_w, ids, deepstack
+        )
+        h_t = self._run_text_layers(
+            h_t, seq, inv_freq_t, pos_t, ds, img_start, want, device, cache
+        )
+        logits_t = self.text.final_norm_logits(axono.slice_(h_t, 0, seq - 1, 1))
+        # rope_delta: 图像段之后文本段的起始 3D 位置 - 图像段末的 1D 索引
+        merge = self.visual.spatial_merge_size
+        llm_h, llm_w = grid_h // merge, grid_w // merge
+        rope_delta = max(llm_h, llm_w) - want
+        return logits_t, cache, rope_delta
+
+    def decode_step(self, token_id: int, kv_cache, prev_len: int, rope_delta: int = 0):
+        """单 token 解码: 只算新 token, 注意力读 cache 全历史。
+
+        token_id: 上一步选出的 token; prev_len: 本 token 在序列中的 1D 索引
+        (即 cache 中已有长度); rope_delta: prefill 返回的 mrope 位置偏移
+        (图像段使 3D 位置相对 1D 索引膨胀)。返回该位置 logits (ndarray, vocab)。
+        """
+        cache = kv_cache
+        device = self.device
+        seq = 1
+        ids_t = axono.Tensor.zeros((1, seq), dtype=axono.DataType.INT64, device=device)
+        ids_t.copy_from_numpy(np.asarray([[token_id]], dtype=np.int64))
+        h = self.text.embed_tokens(ids_t)
+        h_t = _copy(h).reshape((seq, self.text.hidden))
+
+        # HF compute_3d_position_ids (增量路径): position = arange(past_len,
+        # past_len+1) + rope_delta, 三个维度同值。
+        pos_val = prev_len + rope_delta
+        pos_t = axono.Tensor.zeros((3, seq), dtype=axono.DataType.INT64, device=device)
+        pos_t.copy_from_numpy(np.full((3, seq), pos_val, dtype=np.int64))
+        inv_freq_t = self.text._inv_freq(device)
+
+        h_t = self.text.forward_layers(
+            h_t,
+            seq,
+            inv_freq_t,
+            self.text.mrope_section,
+            pos_t,
+            device,
+            cache=cache,
+        )
+        logits_t = self.text.final_norm_logits(h_t)
+        return logits_t.to("cpu").to_numpy() if device != "cpu" else logits_t.to_numpy()
+
     def forward(
         self,
         pixels: np.ndarray,
@@ -595,6 +763,42 @@ class Qwen3VLForConditionalGeneration(nn.Module):
                 eos_hit = True
                 break
             ids.append(next_id)
+        return ids, eos_hit
+
+    def generate_cached(
+        self,
+        pixels,
+        grid_t,
+        grid_h,
+        grid_w,
+        ids,
+        max_new_tokens: int = 256,
+        eos_token_id: int | None = None,
+        greedy: bool = True,
+        kv_cache=None,
+    ):
+        """KV cache 自回归生成: prefill 一次, 每步只算新 token (O(1) 注意力)。
+
+        kv_cache: 可传入自定义 nn.KVCache 组件; 默认 DynamicKVCache。
+        返回 (输出 ids 列表含 prompt, 生成 token 数)。
+        """
+        ids = list(ids)
+        logits_t, cache, rope_delta = self.prefill(
+            pixels, grid_t, grid_h, grid_w, ids, kv_cache=kv_cache
+        )
+        device = self.device
+        last = logits_t.to("cpu").to_numpy() if device != "cpu" else logits_t.to_numpy()
+        eos_hit = False
+        n_prompt = len(ids)
+        for _ in range(max_new_tokens):
+            next_id = int(np.argmax(last[-1]))
+            if eos_token_id is not None and next_id == eos_token_id:
+                eos_hit = True
+                break
+            ids.append(next_id)
+            if len(ids) - n_prompt >= max_new_tokens:
+                break
+            last = self.decode_step(next_id, cache, len(ids) - 1, rope_delta)
         return ids, eos_hit
 
 
