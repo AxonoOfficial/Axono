@@ -61,13 +61,13 @@ def build_mrope_pos3(ids, img_start: int, want: int, llm_h: int, llm_w: int):
     return pos3
 
 
-def _t(arr: np.ndarray, device: str) -> "axono.Tensor":
+def _t(arr: np.ndarray, device: str) -> axono.Tensor:
     """numpy -> Tensor (仅入口/常量构建用)。"""
     t = axono.Tensor.from_numpy(np.ascontiguousarray(arr.astype(np.float32)))
     return t.to(device) if device != "cpu" else t
 
 
-def _copy(t: "axono.Tensor") -> "axono.Tensor":
+def _copy(t: axono.Tensor) -> axono.Tensor:
     """Tensor 浅复制 (reshape 是元数据原地操作, 需要 reshape 前复制)。"""
     out = axono.Tensor(t.dtype, list(t.shape), t.device)
     out.copy_from(t)
@@ -243,9 +243,9 @@ class Qwen3VLVisionModel(nn.Module):
         rows_i, cols_i = seq[:, 0], seq[:, 1]
 
         pe = (
-            self.pos_embed.weight.to("cpu").to_numpy().reshape(
-                self.pos_side, self.pos_side, hidden
-            )
+            self.pos_embed.weight.to("cpu")
+            .to_numpy()
+            .reshape(self.pos_side, self.pos_side, hidden)
         )
         ys = np.linspace(0, self.pos_side - 1, grid_h)
         xs = np.linspace(0, self.pos_side - 1, grid_w)
@@ -368,7 +368,7 @@ class Qwen3VLTextMLP(nn.Module):
         self.down_proj = nn.Linear(inter, hidden, bias=False, device=device)
 
     def forward(self, x):
-        return self.down_proj(axono.mul(axono.silu(self.gate_proj(x)), self.up_proj(x)))
+        return self.down_proj(axono.fused.silu_mul(self.gate_proj(x), self.up_proj(x)))
 
 
 class Qwen3VLDecoderLayer(nn.Module):
@@ -383,6 +383,7 @@ class Qwen3VLDecoderLayer(nn.Module):
         device=None,
     ):
         super().__init__()
+        self.eps = eps
         self.input_layernorm = nn.RMSNorm(hidden, eps=eps, device=device)
         self.post_attention_layernorm = nn.RMSNorm(hidden, eps=eps, device=device)
         self.self_attn = Qwen3VLTextAttention(
@@ -401,22 +402,23 @@ class Qwen3VLDecoderLayer(nn.Module):
         cache=None,
         layer_idx=0,
     ):
-        xn = self.input_layernorm(h)
-        h = axono.add(
-            h,
-            self.self_attn(
-                xn,
-                seq,
-                inv_freq_t,
-                mrope_section,
-                pos_t,
-                device,
-                cache=cache,
-                layer_idx=layer_idx,
-            ),
+        attn_out = self.self_attn(
+            self.input_layernorm(h),
+            seq,
+            inv_freq_t,
+            mrope_section,
+            pos_t,
+            device,
+            cache=cache,
+            layer_idx=layer_idx,
         )
-        xn2 = self.post_attention_layernorm(h)
-        h = axono.add(h, self.mlp(xn2))
+        # 融合: h = h + attn_out; xn2 = rmsnorm(h) (单 kernel, 省一轮读写)
+        h, xn2 = axono.fused.add_rms_norm(
+            attn_out, h, self.post_attention_layernorm.weight, self.eps
+        )
+        mlp_out = self.mlp(xn2)
+        # 末层残差无需再 norm — 用普通加法
+        h = axono.add(h, mlp_out)
         return h
 
 
@@ -434,7 +436,9 @@ class Qwen3VLTextModel(nn.Module):
         self.theta = float(t["rope_theta"])
         self.inter = t["intermediate_size"]
         self.vocab = t["vocab_size"]
-        self.mrope_section = list(t.get("rope_scaling", {}).get("mrope_section", [24, 20, 20]))
+        self.mrope_section = list(
+            t.get("rope_scaling", {}).get("mrope_section", [24, 20, 20])
+        )
 
         self.embed_tokens = nn.Embedding(self.vocab, self.hidden, device=device)
         self.layers = [
@@ -456,9 +460,7 @@ class Qwen3VLTextModel(nn.Module):
         if device not in self._inv_freq_t:
             inv = 1.0 / (
                 self.theta
-                ** (
-                    np.arange(0, self.d_head, 2, dtype=np.float32) / self.d_head
-                )
+                ** (np.arange(0, self.d_head, 2, dtype=np.float32) / self.d_head)
             )
             self._inv_freq_t[device] = _t(inv, device)
         return self._inv_freq_t[device]
@@ -544,15 +546,23 @@ class Qwen3VLForConditionalGeneration(nn.Module):
     def load_hf_weights(self, model_dir: str) -> None:
         sd = load_hf_state_dict(model_dir)
         sd = {
-            k: (v.reshape(v.shape[0], -1) if k.endswith("patch_embed.proj.weight") else v)
+            k: (
+                v.reshape(v.shape[0], -1)
+                if k.endswith("patch_embed.proj.weight")
+                else v
+            )
             for k, v in sd.items()
         }
         self.visual.load_state_dict(
-            {k[len("model.visual."):]: v for k, v in sd.items() if k.startswith("model.visual.")}
+            {
+                k[len("model.visual.") :]: v
+                for k, v in sd.items()
+                if k.startswith("model.visual.")
+            }
         )
         self.text.load_state_dict(
             {
-                k[len("model.language_model."):]: v
+                k[len("model.language_model.") :]: v
                 for k, v in sd.items()
                 if k.startswith("model.language_model.")
             }
@@ -580,9 +590,7 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             merged.to("cpu").to_numpy() if device != "cpu" else merged.to_numpy()
         )
 
-        ids_t = axono.Tensor.zeros(
-            (1, seq), dtype=axono.DataType.INT64, device=device
-        )
+        ids_t = axono.Tensor.zeros((1, seq), dtype=axono.DataType.INT64, device=device)
         ids_t.copy_from_numpy(np.asarray([ids], dtype=np.int64))
         h = self.text.embed_tokens(ids_t)
         h = _copy(h).reshape((seq, self.text.hidden))
@@ -591,13 +599,9 @@ class Qwen3VLForConditionalGeneration(nn.Module):
             h_np[ip] = merged_np[j]
         h_t = _t(h_np, device)
 
-        pos3 = build_mrope_pos3(
-            ids, img_start, want, grid_h // merge, grid_w // merge
-        )
+        pos3 = build_mrope_pos3(ids, img_start, want, grid_h // merge, grid_w // merge)
         inv_freq_t = self.text._inv_freq(device)
-        pos_t = axono.Tensor.zeros(
-            (3, seq), dtype=axono.DataType.INT64, device=device
-        )
+        pos_t = axono.Tensor.zeros((3, seq), dtype=axono.DataType.INT64, device=device)
         pos_t.copy_from_numpy(np.ascontiguousarray(pos3))
 
         if not use_deepstack:
@@ -724,19 +728,22 @@ class Qwen3VLForConditionalGeneration(nn.Module):
         )
         if ds is not None:
             h_t = self.text.forward_layers_with_deepstack(
-                h_t, seq, inv_freq_t, self.text.mrope_section, pos_t,
-                ds, img_start, want, device,
+                h_t,
+                seq,
+                inv_freq_t,
+                self.text.mrope_section,
+                pos_t,
+                ds,
+                img_start,
+                want,
+                device,
             )
         else:
             h_t = self.text.forward_layers(
                 h_t, seq, inv_freq_t, self.text.mrope_section, pos_t, device
             )
         logits_t = self.text.final_norm_logits(h_t)
-        return (
-            logits_t.to("cpu").to_numpy()
-            if device != "cpu"
-            else logits_t.to_numpy()
-        )
+        return logits_t.to("cpu").to_numpy() if device != "cpu" else logits_t.to_numpy()
 
     def generate(
         self,

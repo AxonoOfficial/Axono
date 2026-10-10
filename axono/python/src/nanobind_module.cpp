@@ -30,6 +30,7 @@
 #endif
 #include "axono/ops/cpu/add.h"
 #include "axono/ops/cpu/elementwise.h"
+#include "axono/ops/cpu/fused.h"
 #include "axono/ops/cpu/linear.h"
 #include "axono/ops/cpu/llm.h"
 #include "axono/ops/cpu/sequence.h"
@@ -37,6 +38,7 @@
 #include "axono/ops/cpu/relu.h"
 #ifdef AXONO_WITH_CUDA
 #include "axono/ops/cuda/elementwise.h"
+#include "axono/ops/cuda/fused.h"
 #include "axono/ops/cuda/linear.h"
 #include "axono/ops/cuda/llm.h"
 #include "axono/ops/cuda/sequence.h"
@@ -871,6 +873,52 @@ NB_MODULE(libaxono, m) {
         nb::arg("x"), nb::arg("pos"), nb::arg("inv_freq"), nb::arg("t_sec"),
         nb::arg("h_sec"), nb::arg("w_sec"),
         nb::sig("def rope_thd(x, pos, inv_freq, t_sec, h_sec, w_sec) -> Tensor"));
+
+  m.def("silu_mul",
+        [](const core::Tensor &gate, const core::Tensor &up) {
+          core::Tensor result(gate.dtype(), gate.shape(), gate.device());
+          core::Status st;
+          if (gate.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::SiluMul(core::Context(), gate, up, result);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::SiluMul(core::Context(), gate, up, result);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("silu_mul 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return result;
+        },
+        nb::arg("gate"), nb::arg("up"),
+        nb::sig("def silu_mul(gate, up) -> Tensor"));
+
+  m.def("add_rms_norm",
+        [](const core::Tensor &x, const core::Tensor &residual,
+           const core::Tensor &weight, float eps) {
+          core::Tensor y(x.dtype(), x.shape(), x.device());
+          core::Tensor out(x.dtype(), x.shape(), x.device());
+          core::Status st;
+          if (x.is_cuda()) {
+#ifdef AXONO_WITH_CUDA
+            st = ops::cuda::AddRmsNorm(core::Context(), x, residual, weight,
+                                       eps, y, out);
+#else
+            st = core::Status::DEVICE_ERROR;
+#endif
+          } else {
+            st = ops::cpu::AddRmsNorm(core::Context(), x, residual, weight,
+                                      eps, y, out);
+          }
+          if (st != core::Status::OK)
+            throw std::runtime_error("add_rms_norm 失败, 错误代码: " +
+                                     std::to_string(static_cast<int>(st)));
+          return nb::make_tuple(y, out);
+        },
+        nb::arg("x"), nb::arg("residual"), nb::arg("weight"), nb::arg("eps"),
+        nb::sig("def add_rms_norm(x, residual, weight, eps) -> (Tensor, Tensor)"));
 
   m.def("mrope_cos_sin",
         [](const core::Tensor &pos, const core::Tensor &inv_freq, int h_sec,
