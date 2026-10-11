@@ -84,14 +84,10 @@ jobs:
           - { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404 }
         exclude:
           # CUDA wheel 只在 Linux 构建 (Windows 仅 CPU)
-          - os: windows-2022
-            cuda: { name: cu118, tag: cu118,  pkg: "11-8",  repo: ubuntu2204 }
-          - os: windows-2022
-            cuda: { name: cu126, tag: cu126,  pkg: "12-6",  repo: ubuntu2404 }
-          - os: windows-2022
-            cuda: { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404 }
-          - os: windows-2022
-            cuda: { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404 }
+          - { os: windows-2022, cuda: { name: cu118 } }
+          - { os: windows-2022, cuda: { name: cu126 } }
+          - { os: windows-2022, cuda: { name: cu128 } }
+          - { os: windows-2022, cuda: { name: cu130 } }
     steps:
       - uses: actions/checkout@v4
 
@@ -106,9 +102,9 @@ jobs:
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update -qq
           (sudo apt-get install -y -qq cuda-nvcc-${{ matrix.cuda.pkg }} \
-       cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
-       cuda-curand-dev-${{ matrix.cuda.pkg }} \
-    || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }})
+             cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
+             cuda-curand-dev-${{ matrix.cuda.pkg }} \
+             || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }})
           NVCC=$(find /usr/local/cuda-*/bin -name nvcc 2>/dev/null | head -1)
           echo "$(dirname "$NVCC")" >> "$GITHUB_PATH"
 
