@@ -121,8 +121,8 @@ jobs:
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           (Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Sort-Object Name) | ForEach-Object { $_.Name }
-          $v = (Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Where-Object { $_.Name -like '14.40*' } | Select-Object -First 1).Name
-          if (-not $v) { throw "MSVC 14.40 not installed on runner" }
+          $v = (Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Where-Object { $_.Name -like '14.29*' -or $_.Name -like '14.40*' } | Sort-Object Name -Descending | Select-Object -First 1).Name
+          if (-not $v) { throw "MSVC 14.29/14.40 not installed on runner" }
           "VCToolsVersion=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "Pinned VCToolsVersion=$v"
 
