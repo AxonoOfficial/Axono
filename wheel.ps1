@@ -124,7 +124,11 @@ if ($UseCuda) {
   if ((Get-Command nvcc -ErrorAction SilentlyContinue) -eq $null) {
     $env:Path = "$nvccDir;$env:Path"
   }
-  & $Python -m pip wheel . @OutArgs --config-settings=cmake.define.WITH_CUDA=ON
+  if ($IgnoreDrivers) {
+    & $Python -m pip wheel . @OutArgs --config-settings=cmake.define.WITH_CUDA=ON --config-settings=cmake.define.CMAKE_CUDA_ARCHITECTURES=all-major
+  } else {
+    & $Python -m pip wheel . @OutArgs --config-settings=cmake.define.WITH_CUDA=ON
+  }
 } else {
   & $Python -m pip wheel . @OutArgs --config-settings=cmake.define.WITH_CUDA=OFF
 }

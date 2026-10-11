@@ -45,9 +45,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # OpenMP: CPU elementwise/matmul 内核并行
+# 注意: add_compile_options 全局生效会把 /openmp 传给 nvcc (MSVC 的
+# OpenMP flag), nvcc 报 "Unknown option '-openmp'" — 只对 C++ 目标加
 find_package(OpenMP QUIET)
 if(OpenMP_CXX_FOUND)
-    add_compile_options(${OpenMP_CXX_FLAGS})
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>")
     add_link_options(${OpenMP_CXX_FLAGS})
     message(STATUS "Axono: OpenMP enabled -> ${OpenMP_CXX_FLAGS}")
 else()

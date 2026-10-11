@@ -77,6 +77,10 @@ if [ "$USE_CUDA" = "1" ]; then
   [ -n "$NVCC_PATH" ] && export PATH="$(dirname "$NVCC_PATH"):$PATH"
   command -v nvcc >/dev/null 2>&1 || { echo "错误: 找不到 nvcc"; exit 1; }
   SETTINGS=(--config-settings=cmake.define.WITH_CUDA=ON)
+  # 无 GPU 环境 (CI) 下 native 架构探测会失败, 显式指定主流架构
+  if [ "$IGNORE_DRIVERS" = "1" ]; then
+    SETTINGS+=(--config-settings=cmake.define.CMAKE_CUDA_ARCHITECTURES=all-major)
+  fi
 fi
 
 # pip 需要可用的构建后端
