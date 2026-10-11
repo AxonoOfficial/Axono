@@ -52,10 +52,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - name: Set up Python 3.7 (For Connection Only)
+    - name: Set up Python 3.12 (For Connection Only)
       uses: actions/setup-python@v3
       with:
-        python-version: 3.7
+        python-version: 3.12
         
     - name: Upload
       id: upload
