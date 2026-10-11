@@ -60,14 +60,14 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
       float *rf = result.data<float>();
       const float *bf = bias.data<float>();
 #pragma omp parallel for schedule(static)
-      for (size_t i = 0; i < rows; ++i)
-        for (size_t j = 0; j < out_f; ++j) rf[i * out_f + j] = bf[j];
+      for (int64_t i = 0; i < rows; ++i)
+        for (int64_t j = 0; j < out_f; ++j) rf[i * out_f + j] = bf[j];
     } else {
       double *rd = result.data<double>();
       const double *bd = bias.data<double>();
 #pragma omp parallel for schedule(static)
-      for (size_t i = 0; i < rows; ++i)
-        for (size_t j = 0; j < out_f; ++j) rd[i * out_f + j] = bd[j];
+      for (int64_t i = 0; i < rows; ++i)
+        for (int64_t j = 0; j < out_f; ++j) rd[i * out_f + j] = bd[j];
     }
   } else {
     core::Status st2 = result.FillZero();
@@ -98,10 +98,10 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
     const float *pb = has_bias ? bias.data<float>() : nullptr;
     float *po = result.data<float>();
 #pragma omp parallel for collapse(2) schedule(static)
-    for (size_t i = 0; i < rows; ++i) {
-      for (size_t j = 0; j < out_f; ++j) {
+    for (int64_t i = 0; i < rows; ++i) {
+      for (int64_t j = 0; j < out_f; ++j) {
         float acc = 0.0f;
-        for (size_t p = 0; p < k; ++p) acc += px[i * k + p] * pw[j * k + p];
+        for (int64_t p = 0; p < k; ++p) acc += px[i * k + p] * pw[j * k + p];
         if (pb != nullptr) acc += pb[j];
         po[i * out_f + j] = acc;
       }
@@ -113,10 +113,10 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
   const double *pb = has_bias ? bias.data<double>() : nullptr;
   double *po = result.data<double>();
 #pragma omp parallel for collapse(2) schedule(static)
-  for (size_t i = 0; i < rows; ++i) {
-    for (size_t j = 0; j < out_f; ++j) {
+  for (int64_t i = 0; i < rows; ++i) {
+    for (int64_t j = 0; j < out_f; ++j) {
       double acc = 0.0;
-      for (size_t p = 0; p < k; ++p) acc += px[i * k + p] * pw[j * k + p];
+      for (int64_t p = 0; p < k; ++p) acc += px[i * k + p] * pw[j * k + p];
       if (pb != nullptr) acc += pb[j];
       po[i * out_f + j] = acc;
     }

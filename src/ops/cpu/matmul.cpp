@@ -306,8 +306,8 @@ void MatMulParallel(const T *a, const T *b, T *result, size_t m, size_t n,
   std::fill(result, result + m * n, T(0));
 
 #pragma omp parallel for collapse(2) schedule(dynamic)
-  for (size_t i = 0; i < m; i += BLOCK_SIZE) {
-    for (size_t j = 0; j < n; j += BLOCK_SIZE) {
+  for (int64_t i = 0; i < m; i += BLOCK_SIZE) {
+    for (int64_t j = 0; j < n; j += BLOCK_SIZE) {
       size_t i_end = std::min(i + BLOCK_SIZE, m);
       size_t j_end = std::min(j + BLOCK_SIZE, n);
 
@@ -340,7 +340,7 @@ void MatMulParallelOptimized(const T *a, const T *b, T *result, size_t m,
   {
 // 每个线程处理不同的i块
 #pragma omp for schedule(static)
-    for (size_t i = 0; i < m; i += BLOCK_SIZE_M) {
+    for (int64_t i = 0; i < m; i += BLOCK_SIZE_M) {
       size_t i_end = std::min(i + BLOCK_SIZE_M, m);
 
       for (size_t p = 0; p < k; p += BLOCK_SIZE_K) {

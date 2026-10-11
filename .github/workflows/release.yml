@@ -44,10 +44,10 @@ jobs:
           wget -q https://developer.download.nvidia.com/compute/cuda/repos/${{ matrix.cuda.repo }}/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update -qq
-          sudo apt-get install -y -qq cuda-nvcc-${{ matrix.cuda.pkg }} \
-               cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
-               cuda-curand-dev-${{ matrix.cuda.pkg }} \
-               || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }}
+          (sudo apt-get install -y -qq cuda-nvcc-${{ matrix.cuda.pkg }} \
+       cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
+       cuda-curand-dev-${{ matrix.cuda.pkg }} \
+    || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }})
           echo "/usr/local/cuda-${{ matrix.cuda.pkg }}*/bin" > /dev/null
           NVCC=$(find /usr/local/cuda-*/bin -name nvcc 2>/dev/null | head -1)
           echo "$(dirname "$NVCC")" >> "$GITHUB_PATH"

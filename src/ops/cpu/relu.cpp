@@ -15,7 +15,7 @@ void ReluKernel(const T *input, T *output, size_t n) {
     return;
   }
 #pragma omp parallel for schedule(static)
-  for (size_t i = 0; i < n; ++i) output[i] = std::max(T(0), input[i]);
+  for (int64_t i = 0; i < n; ++i) output[i] = std::max(T(0), input[i]);
 }
 template <typename T>
 void ReluInplaceKernel(T *data, size_t n) {
@@ -24,7 +24,7 @@ void ReluInplaceKernel(T *data, size_t n) {
     return;
   }
 #pragma omp parallel for schedule(static)
-  for (size_t i = 0; i < n; ++i) data[i] = std::max(T(0), data[i]);
+  for (int64_t i = 0; i < n; ++i) data[i] = std::max(T(0), data[i]);
 }
 
 core::Status DispatchRelu(const core::Tensor &input, core::Tensor &output) {

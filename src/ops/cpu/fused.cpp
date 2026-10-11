@@ -27,7 +27,7 @@ core::Status SiluMul(const core::Context &ctx, const core::Tensor &gate,
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
 #endif
-  for (size_t i = 0; i < n; ++i) {
+  for (int64_t i = 0; i < n; ++i) {
     const float g = gp[i];
     yp[i] = g / (1.0f + std::exp(-g)) * upp[i];
   }
@@ -58,7 +58,7 @@ core::Status AddRmsNorm(const core::Context &ctx, const core::Tensor &x,
 #ifdef _OPENMP
 #pragma omp parallel for schedule(static)
 #endif
-  for (size_t r = 0; r < rows; ++r) {
+  for (int64_t r = 0; r < rows; ++r) {
     const float *xr = xp + r * hidden;
     const float *rr = rp + r * hidden;
     float *yr = yp + r * hidden;

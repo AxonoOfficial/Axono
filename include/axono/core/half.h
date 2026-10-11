@@ -4,6 +4,7 @@
 // 参考 Fabian Giesen 的 public-domain half 实现精简而来。
 
 #include <cstdint>
+#include <cstring>
 
 namespace axono {
 namespace core {
@@ -12,7 +13,7 @@ namespace detail {
 // float32 -> float16 (返回 IEEE half 位模式)。溢出饱和到 inf, 次正规舍入。
 inline uint16_t Float2Half(float value) {
   uint32_t x;
-  __builtin_memcpy(&x, &value, sizeof(x));
+  std::memcpy(&x, &value, sizeof(x));
 
   const uint32_t sign = (x >> 16) & 0x8000u;
   uint32_t exp = (x >> 23) & 0xFFu;
@@ -73,7 +74,7 @@ inline float Half2Float(uint16_t h) {
     x = sign | ((exp - 15 + 127) << 23) | (man << 13);
   }
   float out;
-  __builtin_memcpy(&out, &x, sizeof(out));
+  std::memcpy(&out, &x, sizeof(out));
   return out;
 }
 
