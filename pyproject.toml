@@ -36,12 +36,13 @@ Documentation = "https://axono.readthedocs.io"
 [tool.scikit-build]
 # 源码布局: 顶层 CMakeLists.txt; Python 包在 axono/python/axono
 wheel.packages = ["axono/python/axono"]
-cmake.verbose = false
+build.verbose = false
 # 编译产物 libaxono*.so 由 CMake install 到包内 (见 axono/CMakeLists.txt)
 build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake.define]
-# pip install 时默认 CPU 构建; CUDA 由环境变量 AXONO_WITH_CUDA=1 开启
+# pip install 时默认 CPU 构建; CUDA 用 --config-settings=cmake.define.WITH_CUDA=ON
+# (install.sh / wheel.sh 自动检测并传入)
 
 [tool.ruff]
 line-length = 88

@@ -47,8 +47,13 @@ Axono 是一个轻量级的人工智能算法库，旨在为教学、研究与�
 
 ## 安装（Linux）
 ```bash
-# 编译安装
-bash build.sh
+# 源码编译安装 (自动检测 CUDA 兼容环境; --cuda 强制启用 / --no-cuda 纯 CPU)
+bash install.sh
+```
+```bash
+# 导出 wheel 安装包 (与 install.sh 相同的 CUDA 检测参数)
+bash wheel.sh            # 产物 axono-*.whl
+pip install axono-*.whl
 ```
 ```python
 # 已构建安装
