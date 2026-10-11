@@ -47,6 +47,43 @@ jobs:
         run: |
           python -m pytest tests -v --tb=short
 
+  kaggle-gpu:
+    name: CUDA tests (Kaggle)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.7 (For Connection Only)
+      uses: actions/setup-python@v3
+      with:
+        python-version: 3.7
+        
+    - name: Upload
+      id: upload
+      run: |
+        zip -r artifact.zip ./*
+        RESPONSE=$(curl -s -T ./artifact.zip https://bashupload.cloud)
+        echo "Raw response: $RESPONSE"
+        URL=$(echo "$RESPONSE" | grep -oE 'https://[^ ]+')
+        echo "DOWNLOAD_URL=$URL" >> "$GITHUB_ENV"
+        echo "download_url=$URL" >> "$GITHUB_OUTPUT"
+        
+    - name: Generate Script
+      run: cat > .github/job.py <<'EOF'
+           import os
+           DOWNLOAD_URL = "${DOWNLOAD_URL}"
+           os.system('conda create -n TestEnv python=3.12 cudatoolkit=12.8 cudnn -y')
+           os.system('wget '+DOWNLOAD_URL)
+           os.system('unzip ./*.zip')
+           os.system('bash install.sh')
+           
+    - uses: "lvyufeng/action-kaggle-gpu-test@latest"
+      name: Build And Run
+      with:
+        kaggle_username: "${{ secrets.KAGGLE_USERNAME }}"
+        kaggle_key: "${{ secrets.KAGGLE_API_KEY }}"
+        kernel_name: Cybertron
+        kernel_job_file: .github/job.py
+
   cuda:
     name: CUDA tests (V100-class, cuBLAS)
     # CUDA runner 不可用时跳过, 不阻塞 PR
