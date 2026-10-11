@@ -34,7 +34,7 @@ core::Status LastDimCheck(const core::Tensor &x, core::Tensor &result,
 template <typename T>
 void SoftmaxRows(const T *x, T *out, size_t rows, size_t cols, bool log_mode) {
 #pragma omp parallel for schedule(static)
-  for (size_t r = 0; r < rows; ++r) {
+  for (int64_t r = 0; r < rows; ++r) {
     const T *xr = x + r * cols;
     T *orr = out + r * cols;
     T mx = xr[0];
@@ -59,7 +59,7 @@ void NormRows(const T *x, T *out, size_t rows, size_t cols, const T *weight,
               const T *bias, bool has_weight, bool has_bias, float eps,
               bool rms_mode) {
 #pragma omp parallel for schedule(static)
-  for (size_t r = 0; r < rows; ++r) {
+  for (int64_t r = 0; r < rows; ++r) {
     const T *xr = x + r * cols;
     T *orr = out + r * cols;
     if (rms_mode) {
@@ -137,13 +137,13 @@ core::Status Gelu(const core::Context &ctx, const core::Tensor &x,
     const float *px = x.data<float>();
     float *po = result.data<float>();
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i)
+    for (int64_t i = 0; i < n; ++i)
       po[i] = 0.5f * px[i] * (1.0f + std::erf(px[i] / 1.41421356237f));
   } else if (x.dtype() == core::DataType::FLOAT64) {
     const double *px = x.data<double>();
     double *po = result.data<double>();
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i)
+    for (int64_t i = 0; i < n; ++i)
       po[i] = 0.5 * px[i] * (1.0 + std::erf(px[i] / 1.4142135623730951));
   } else {
     return core::Status::UNSUPPORTED_TYPE;
@@ -164,7 +164,7 @@ core::Status GeluTanh(const core::Context &ctx, const core::Tensor &x,
     float *po = result.data<float>();
     constexpr float kC = 0.7978845608028654f;  // sqrt(2/pi)
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i) {
+    for (int64_t i = 0; i < n; ++i) {
       const float v = px[i];
       const float inner = kC * (v + 0.044715f * v * v * v);
       po[i] = 0.5f * v * (1.0f + std::tanh(inner));
@@ -174,7 +174,7 @@ core::Status GeluTanh(const core::Context &ctx, const core::Tensor &x,
     double *po = result.data<double>();
     constexpr double kC = 0.7978845608028654;
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i) {
+    for (int64_t i = 0; i < n; ++i) {
       const double v = px[i];
       const double inner = kC * (v + 0.044715 * v * v * v);
       po[i] = 0.5 * v * (1.0 + std::tanh(inner));
@@ -196,12 +196,12 @@ core::Status Silu(const core::Context &ctx, const core::Tensor &x,
     const float *px = x.data<float>();
     float *po = result.data<float>();
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i) po[i] = px[i] / (1.0f + std::exp(-px[i]));
+    for (int64_t i = 0; i < n; ++i) po[i] = px[i] / (1.0f + std::exp(-px[i]));
   } else if (x.dtype() == core::DataType::FLOAT64) {
     const double *px = x.data<double>();
     double *po = result.data<double>();
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i) po[i] = px[i] / (1.0 + std::exp(-px[i]));
+    for (int64_t i = 0; i < n; ++i) po[i] = px[i] / (1.0 + std::exp(-px[i]));
   } else {
     return core::Status::UNSUPPORTED_TYPE;
   }

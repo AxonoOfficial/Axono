@@ -40,7 +40,7 @@ inline void BinaryKernel(const T *a, const T *b, T *out, size_t n, Op op) {
     return;
   }
 #pragma omp parallel for schedule(static)
-  for (size_t i = 0; i < n; ++i) out[i] = op(a[i], b[i]);
+  for (int64_t i = 0; i < n; ++i) out[i] = op(a[i], b[i]);
 }
 
 struct OpSub {
@@ -88,7 +88,7 @@ inline void UnaryKernel(const T *x, T *out, size_t n, F &&f) {
     return;
   }
 #pragma omp parallel for schedule(static)
-  for (size_t i = 0; i < n; ++i) out[i] = f(x[i]);
+  for (int64_t i = 0; i < n; ++i) out[i] = f(x[i]);
 }
 
 // dtype 分派 (二元: 4 种整型/浮点; 一元: 仅浮点)

@@ -73,8 +73,8 @@ core::Status Rope(const core::Context &ctx, const core::Tensor &x,
   const size_t half = dim / 2;
   // HF rotate_half 约定: 配对 (i, i+half), i in [0, half)
 #pragma omp parallel for collapse(2) schedule(static)
-  for (size_t r = 0; r < rows; ++r) {
-    for (size_t h = 0; h < heads; ++h) {
+  for (int64_t r = 0; r < rows; ++r) {
+    for (int64_t h = 0; h < heads; ++h) {
       const float *src = xp + (r * heads + h) * dim;
       float *dst = rp + (r * heads + h) * dim;
       const float p = static_cast<float>(pos[r]);
@@ -118,8 +118,8 @@ core::Status RopeWithCosSin(const core::Context &ctx, const core::Tensor &x,
   const size_t half = dim / 2;
   // HF rotate_half 约定: 配对 (i, i+half), i in [0, half)。
 #pragma omp parallel for collapse(2) schedule(static)
-  for (size_t r = 0; r < rows; ++r) {
-    for (size_t h = 0; h < heads; ++h) {
+  for (int64_t r = 0; r < rows; ++r) {
+    for (int64_t h = 0; h < heads; ++h) {
       const float *src = xp + (r * heads + h) * dim;
       float *dst = rp + (r * heads + h) * dim;
       const float *cr = cp + r * dim;
@@ -158,7 +158,7 @@ core::Status MropeCosSin(const core::Context &ctx, const core::Tensor &pos,
   const size_t h_lim = static_cast<size_t>(h_sec) * 3;
   const size_t w_lim = static_cast<size_t>(w_sec) * 3;
 #pragma omp parallel for schedule(static)
-  for (size_t r = 0; r < rows; ++r) {
+  for (int64_t r = 0; r < rows; ++r) {
     const float pt = static_cast<float>(pp[r]);
     const float ph = static_cast<float>(pp[rows + r]);
     const float pw = static_cast<float>(pp[2 * rows + r]);
@@ -209,8 +209,8 @@ core::Status RopeThd(const core::Context &ctx, const core::Tensor &x,
   const size_t h_lim = static_cast<size_t>(h_sec) * 3;
   const size_t w_lim = static_cast<size_t>(w_sec) * 3;
 #pragma omp parallel for collapse(2) schedule(static)
-  for (size_t r = 0; r < rows; ++r) {
-    for (size_t h = 0; h < heads; ++h) {
+  for (int64_t r = 0; r < rows; ++r) {
+    for (int64_t h = 0; h < heads; ++h) {
       const float *src = xp + (r * heads + h) * dim;
       float *dst = rp + (r * heads + h) * dim;
       const float pt = static_cast<float>(pp[r]);
@@ -262,8 +262,8 @@ core::Status ScaledDotProductAttention(const core::Context &ctx,
   const float scale = 1.0f / std::sqrt(static_cast<float>(d));
 
 #pragma omp parallel for collapse(2) schedule(static)
-  for (size_t t = 0; t < sq; ++t) {
-    for (size_t h = 0; h < hq; ++h) {
+  for (int64_t t = 0; t < sq; ++t) {
+    for (int64_t h = 0; h < hq; ++h) {
       const float *qr = qp + (t * hq + h) * d;
       float *outr = rp + (t * hq + h) * d;
       const size_t hk = h / group;

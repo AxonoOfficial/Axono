@@ -19,7 +19,9 @@ param(
   [switch]$Cuda,
   [switch]$NoCuda,
   [switch]$IgnoreDrivers,
-  [string]$OutDir = ""
+  [string]$OutDir = "",
+  # CUDA wheel 文件名本地版本段 (如 cu126 → axono-0.2.0+cu126-...)
+  [string]$CudaTag = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -127,6 +129,19 @@ if ($UseCuda) {
   & $Python -m pip wheel . @OutArgs --config-settings=cmake.define.WITH_CUDA=OFF
 }
 if ($LASTEXITCODE -ne 0) { exit 1 }
+
+if ($UseCuda -and $CudaTag) {
+  $dest = if ($OutDir) { $OutDir } else { (Get-Location).Path }
+  Get-ChildItem (Join-Path $dest "axono-*-cp*-cp*-*.whl") -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.Name -notmatch '\+.*cu') {
+      $newName = $_.Name -replace '^(axono-[0-9]+\.[0-9]+\.[0-9]+)', "`$1+$CudaTag"
+      if ($newName -ne $_.Name) {
+        Rename-Item $_.FullName $newName
+        Write-Host "==> renamed: $newName"
+      }
+    }
+  }
+}
 
 if ($OutDir) {
   Write-Host "==> Artifacts:"

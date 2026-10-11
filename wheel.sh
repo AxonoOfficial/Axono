@@ -8,6 +8,8 @@
 #   bash wheel.sh --no-cuda         # 强制纯 CPU
 #   bash wheel.sh --cuda --ignore-drivers          # 强制 CUDA, 只查 nvcc
 #                                    # (CI/无卡编译机; 运行时才需要驱动)
+#   AXONO_CUDA_TAG=cu126 bash wheel.sh --cuda ...   # CUDA wheel 文件名加
+#                                    # 本地版本段 (axono-0.2.0+cu126-...)
 #   bash wheel.sh --no-cuda --outdir /tmp/wheels   # 额外参数透传给 pip wheel
 #
 # 安装产物:
@@ -97,4 +99,17 @@ else
   echo "==> 产物 (当前目录):"
   ls -lh ./axono-*.whl 2>/dev/null || ls -lh dist/axono-*.whl 2>/dev/null || true
 fi
+
+# CUDA wheel 文件名加本地版本段 (如 +cu126), 与 CPU wheel 区分:
+# axono-0.2.0+cu126-cp312-cp312-linux_x86_64.whl (PEP 440 local version)
+if [ "$USE_CUDA" = "1" ] && [ -n "${AXONO_CUDA_TAG:-}" ]; then
+  DEST="${OUTDIR:-.}"
+  for f in "$DEST"/axono-*-cp*-cp*-*.whl; do
+    [ -e "$f" ] || continue
+    case "$f" in *+*cu*) continue ;; esac   # 已带 tag 不重复改
+    newf="$(echo "$f" | sed -E "s/(axono-[0-9]+\.[0-9]+\.[0-9]+)/\1+${AXONO_CUDA_TAG}/")"
+    if [ "$f" != "$newf" ]; then mv "$f" "$newf"; echo "==> renamed: $(basename "$newf")"; fi
+  done
+fi
+
 echo "==> 完成。安装: pip install <上面的 .whl 路径>"
