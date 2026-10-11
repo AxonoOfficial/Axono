@@ -5,39 +5,47 @@ on:
     branches: [ dev ]
   pull_request:
     branches: [ dev ]
-  workflow_dispatch:  # 添加手动触发器
+  workflow_dispatch:
 
 jobs:
-  build:
+  coverage:
     name: Coverage Test
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.12'
 
-    - name: Install Dependencies
+    - name: Install build dependencies
       run: |
-        pip3 install -r requirements.txt
-        pip3 install setuptools
+        python -m pip install --upgrade pip
+        pip install nanobind numpy pytest pytest-cov scikit-build-core
 
-    - name: Install Coverage Test Library
-      run: pip install pytest pytest-cov
-
-    - name: Build And Install Axono
+    - name: Configure (CPU)
       run: |
-        export AUTO_CI=cpu
-        bash build.sh 2>&1 | tee build_output.log
+        cmake -B build -DPython_EXECUTABLE=$(which python)
+
+    - name: Build
+      run: cmake --build build -j"$(nproc)"
+
+    - name: Locate extension and prepare package
+      run: |
+        SO=$(find build -name 'libaxono*.so' | head -1)
+        echo "Found extension: $SO"
+        mkdir -p axono/python/axono/library
+        cp "$SO" axono/python/axono/library/
 
     - name: Run Coverage Test
-      run: pytest --cov --cov-branch --cov-report=xml
+      working-directory: axono/python
+      run: |
+        PYTHONPATH=. python -m pytest tests --cov=axono --cov-branch --cov-report=xml --cov-report=term
 
     - name: Upload Coverage Report
       uses: codecov/codecov-action@v5
