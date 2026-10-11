@@ -92,7 +92,7 @@ jobs:
       with:
           kaggle_username: "${{ secrets.KAGGLE_USERNAME }}"
           kaggle_key: "${{ secrets.KAGGLE_API_KEY }}"
-          kernel_name: Cybertron
+          kernel_name: ${{ secrets.KAGGLE_USERNAME }}/axonotest
           kernel_job_file: .github/job.py
 
   cuda:
