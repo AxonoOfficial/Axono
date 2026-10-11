@@ -312,10 +312,10 @@ cublasStatus_t LtGemm<double>(cublasOperation_t op_b, cublasOperation_t op_a,
   return status;
 }
 cublasStatus_t LtGemmF16(cublasOperation_t op_b, cublasOperation_t op_a,
-                         int n, int m, int k, const __half *alpha,
+                         int n, int m, int k, const float *alpha,
                          const __half *b, int ldb, const __half *a,
-                         int lda, const __half *beta, __half *c, int ldc,
-                         cudaStream_t stream) {
+                         int lda, const float *beta, void *c, int ldc,
+                         cudaStream_t stream, bool out_f32) {
   cublasLtHandle_t lt = GetLtHandle();
   cublasLtMatmulDesc_t op_desc = nullptr;
   cublasLtMatmulPreference_t pref = nullptr;
@@ -323,10 +323,12 @@ cublasStatus_t LtGemmF16(cublasOperation_t op_b, cublasOperation_t op_a,
   int returned = 0;
   cublasStatus_t status = CUBLAS_STATUS_SUCCESS;
 
-  // 16F 输入输出 + 16F 累加 (V100 tensor core; 先用最保守 16F compute 
-  // 保证兼容, 精度由测试把关)
-  if (cublasLtMatmulDescCreate(&op_desc, CUBLAS_COMPUTE_16F, CUDA_R_16F) !=
-      CUBLAS_STATUS_SUCCESS) {
+  // out_f32: A/B 16F 输入 + C/D 32F 输出 (32F 累加) — Linear 混合路径,
+  // gemm 直接写 fp32 result, 省去 cast-back kernel;
+  // 否则全 16F (compute 16F) — 纯 fp16 张量 MatMul 语义。
+  if (cublasLtMatmulDescCreate(
+          &op_desc, out_f32 ? CUBLAS_COMPUTE_32F : CUBLAS_COMPUTE_16F,
+          out_f32 ? CUDA_R_32F : CUDA_R_16F) != CUBLAS_STATUS_SUCCESS) {
     return CUBLAS_STATUS_INTERNAL_ERROR;
   }
   if (cublasLtMatmulDescSetAttribute(op_desc, CUBLASLT_MATMUL_DESC_TRANSA,
@@ -361,11 +363,13 @@ cublasStatus_t LtGemmF16(cublasOperation_t op_b, cublasOperation_t op_a,
     if (cublasLtMatrixLayoutCreate(&la, CUDA_R_16F, op_a == CUBLAS_OP_N ? k : m,
                                    op_a == CUBLAS_OP_N ? m : k, lda) !=
         CUBLAS_STATUS_SUCCESS) { status = CUBLAS_STATUS_INTERNAL_ERROR; break; }
-    if (cublasLtMatrixLayoutCreate(&lc, CUDA_R_16F, n, m, ldc) !=
+    // C/D 输出类型 (与 compute 类型一致)
+    if (cublasLtMatrixLayoutCreate(&lc, out_f32 ? CUDA_R_32F : CUDA_R_16F,
+                                   n, m, ldc) !=
         CUBLAS_STATUS_SUCCESS) { status = CUBLAS_STATUS_INTERNAL_ERROR; break; }
 
-    // tag=2 (float=0, double=1)
-    constexpr int kTag = 2;
+    // tag=2 (fp16-out, float=0, double=1) / tag=3 (f32-out 混合)
+    const int kTag = out_f32 ? 3 : 2;
     cublasLtMatmulAlgo_t algo;
     if (!AlgoCacheFind(kTag, n, m, k, &algo)) {
       if (cublasLtMatmulAlgoGetHeuristic(lt, op_desc, lb, la, lc, lc, pref,
@@ -379,8 +383,16 @@ cublasStatus_t LtGemmF16(cublasOperation_t op_b, cublasOperation_t op_a,
       AlgoCachePut(kTag, n, m, k, algo);
     }
 
-    status = cublasLtMatmul(lt, op_desc, alpha, b, lb, a, la, beta, c,
-                            lc, c, lc, &algo, ws, ws_size, stream);
+    if (out_f32) {
+      status = cublasLtMatmul(lt, op_desc, alpha, b, lb, a, la, beta, c,
+                              lc, c, lc, &algo, ws, ws_size, stream);
+    } else {
+      // 16F compute 的 scaleType 是 CUDA_R_16F: alpha/beta 须为 half
+      const __half ah = __half(*static_cast<const float *>(alpha));
+      const __half bh = __half(*static_cast<const float *>(beta));
+      status = cublasLtMatmul(lt, op_desc, &ah, b, lb, a, la, &bh, c,
+                              lc, c, lc, &algo, ws, ws_size, stream);
+    }
   } while (false);
 
   if (la) cublasLtMatrixLayoutDestroy(la);
@@ -434,19 +446,18 @@ bool TryLtGemmF64(int n, int m, int k, const double *alpha, const double *b,
   }
 }
 
-// FP16 gemm: 16F 输入/输出 + 32F 累加 (tensor core)。beta 固定 1.0
-// (调用方先把 result 初始化为 bias 或 0)。
+// 混合精度 gemm: A/B 16F 输入 + C/D 32F 输出 (out_f32) 或全 16F。
+// beta 默认 1.0 (调用方先把 result 初始化为 bias 或 0)。
 bool TryLtGemmF16(int n, int m, int k, const __half *b, int ldb,
-                  const __half *a, int lda, __half *c, int ldc,
-                  cudaStream_t stream, cublasOperation_t transa = CUBLAS_OP_N,
-                  float beta = 1.0f) {
+                  const __half *a, int lda, void *c, int ldc,
+                  cudaStream_t stream, cublasOperation_t transa,
+                  float beta, bool out_f32) {
   if (!g_use_lt.load()) return false;
   std::lock_guard<std::mutex> lock(LtMutex());
   try {
-    const __half alpha_one = __half(1.0f);
-    const __half beta_h = __half(beta);
+    const float alpha_one = 1.0f;
     return LtGemmF16(transa, CUBLAS_OP_N, n, m, k, &alpha_one, b, ldb, a,
-                     lda, &beta_h, c, ldc, stream) ==
+                     lda, &beta, c, ldc, stream, out_f32) ==
            CUBLAS_STATUS_SUCCESS;
   } catch (const std::exception &) {
     return false;

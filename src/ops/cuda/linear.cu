@@ -82,13 +82,21 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
   const size_t k = x.shape().back();
   const size_t out_f = weight.shape()[0];
   const size_t rows = x.num_elements() / k;
-  if (weight.shape()[1] != k) return core::Status::SHAPE_MISMATCH;
-  const bool has_bias = bias.num_elements() != 0;
-  if (has_bias && (bias.ndim() != 1 || bias.shape()[0] != out_f))
+  if (weight.shape()[1] != k) {
+    fprintf(stderr, "[dbg] w.shape1=%zu k=%zu\n", weight.shape()[1], k);
     return core::Status::SHAPE_MISMATCH;
+  }
+  const bool has_bias = bias.num_elements() != 0;
+  if (has_bias && (bias.ndim() != 1 || bias.shape()[0] != out_f)) {
+    fprintf(stderr, "[dbg] shape_mismatch: bias ndim=%zu shape0=%zu out_f=%zu\n",
+            static_cast<size_t>(bias.ndim()),
+            bias.ndim() ? bias.shape()[0] : 0, out_f);
+    return core::Status::SHAPE_MISMATCH;
+  }
   // ---- FP16 混合路径: weight fp16 + x fp32 → tensor core gemm ----
-  // x cast 到 fp16, gemm 16F/32F-acc, bias 广播进 fp16 中间结果,
-  // 最终 cast 回 fp32。上层无感 (输入输出仍是 fp32)。
+  // A/B 16F 输入 + C/D 32F 输出 (32F 累加): gemm 直接写 result,
+  // 省去 fp16 中间张量与 cast-back kernel; bias 用 fp32 广播。
+  // 上层无感 (输入输出仍是 fp32)。
   const int M = static_cast<int>(out_f);
   const int N = static_cast<int>(rows);
   const int K = static_cast<int>(k);
@@ -100,69 +108,71 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
     std::vector<size_t> out_shape16 = x.shape();
     out_shape16.back() = out_f;
     core::Tensor xh = x.CastTo(core::DataType::FLOAT16);
-    core::Tensor resh(core::DataType::FLOAT16,
-                      core::Shape(out_shape16.begin(), out_shape16.end()),
-                      x.device());
-    resh.InitializeStorage();
-    core::Tensor bh;
-    if (has_bias) bh = bias.CastTo(core::DataType::FLOAT16);
-    const size_t total16 = rows * out_f;
-    const dim3 grid16(static_cast<unsigned>((total16 + 255) / 256));
+    const size_t total32 = rows * out_f;
+    const dim3 grid32(static_cast<unsigned>((total32 + 255) / 256));
+    core::Tensor b32;
     if (has_bias) {
-      BroadcastBiasF16<<<grid16, 256, 0, s>>>(
-          static_cast<__half *>(resh.data()),
-          static_cast<const __half *>(bh.data()), rows, out_f);
+      // bias 可能 fp16 (cast_linear_fp16 契约) 或 fp32: 统一 cast fp32
+      b32 = bias.dtype() == core::DataType::FLOAT16
+                ? bias.CastTo(core::DataType::FLOAT32)
+                : bias;
+      BroadcastBiasF32<<<grid32, 256, 0, s>>>(result.data<float>(),
+                                              b32.data<float>(), rows,
+                                              out_f);
     } else {
-      FillZeroF16<<<grid16, 256, 0, s>>>(
-          static_cast<__half *>(resh.data()), total16);
+      FillZeroF32<<<grid32, 256, 0, s>>>(result.data<float>(), total32);
     }
     if (cudaGetLastError() != cudaSuccess)
       return core::Status::DEVICE_ERROR;
-    // gemm: resh += xh @ W^T; 列主序映射同 F32 注释块
-    if (!TryLtGemmF16(M, N, K, static_cast<const __half *>(weight.data()),
-                      K, static_cast<const __half *>(xh.data()), K,
-                      static_cast<__half *>(resh.data()),
-                      static_cast<int>(out_f), s, CUBLAS_OP_T)) {
-      // Lt 不可用 (如 backend 切到经典 cublas): 回退 fp32 全精度路径
-      core::Tensor w32 = weight.CastTo(core::DataType::FLOAT32);
-      core::Tensor b32;
-      if (has_bias) b32 = bias.CastTo(core::DataType::FLOAT32);
-      core::Tensor res32(core::DataType::FLOAT32,
-                         core::Shape(out_shape16.begin(), out_shape16.end()),
-                         x.device());
-      res32.InitializeStorage();
-      const size_t total32 = rows * out_f;
-      const dim3 grid32(static_cast<unsigned>((total32 + 255) / 256));
-      if (has_bias) {
-        BroadcastBiasF32<<<grid32, 256, 0, s>>>(res32.data<float>(),
-                                                b32.data<float>(), rows,
-                                                out_f);
-      } else {
-        FillZeroF32<<<grid32, 256, 0, s>>>(res32.data<float>(), total32);
+    // 32F-out 混合 gemm: cublasGemmEx 经典 API (16F AB + 32F C/D +
+    // 32F compute/tensor core)。不依赖 Lt heuristic (V100 对该组合的
+    // Lt 支持不稳), decode GEMV memory-bound, 默认 kernel 即可。
+    {
+      cublasHandle_t handle = GetCublasHandle();
+      cublasSetStream(handle, s);
+      cublasStatus_t cst = cublasGemmEx(
+          handle, CUBLAS_OP_T, CUBLAS_OP_N, M, N, K, &alpha_f,
+          weight.data(), CUDA_R_16F, K,
+          xh.data(), CUDA_R_16F, K, &beta_f,
+          result.data<float>(), CUDA_R_32F, static_cast<int>(out_f),
+          CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT);
+      if (cst == CUBLAS_STATUS_NOT_SUPPORTED ||
+          cst == CUBLAS_STATUS_ARCH_MISMATCH) {
+        // Lt/经典路径都不支持: 回退 fp32 全精度路径
+        core::Tensor w32 = weight.CastTo(core::DataType::FLOAT32);
+        core::Tensor res32(core::DataType::FLOAT32,
+                           core::Shape(out_shape16.begin(), out_shape16.end()),
+                           x.device());
+        res32.InitializeStorage();
+        if (has_bias) {
+          BroadcastBiasF32<<<grid32, 256, 0, s>>>(res32.data<float>(),
+                                                  b32.data<float>(), rows,
+                                                  out_f);
+        } else {
+          FillZeroF32<<<grid32, 256, 0, s>>>(res32.data<float>(), total32);
+        }
+        if (cudaGetLastError() != cudaSuccess)
+          return core::Status::DEVICE_ERROR;
+        if (!TryLtGemmF32(M, N, K, &alpha_f, w32.data<float>(), K,
+                          x.data<float>(), K, &beta_f, res32.data<float>(),
+                          static_cast<int>(out_f), s, CUBLAS_OP_T)) {
+          cublasSetStream(handle, s);
+          AXONO_CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N,
+                                         M, N, K, &alpha_f,
+                                         w32.data<float>(), K,
+                                         x.data<float>(), K, &beta_f,
+                                         res32.data<float>(),
+                                         static_cast<int>(out_f)));
+        }
+        core::Status st32 = result.CopyFrom(res32);
+        if (core::cuda::MaybeSync() != cudaSuccess)
+          return core::Status::INTERNAL_ERROR;
+        return st32;
       }
-      if (cudaGetLastError() != cudaSuccess)
+      if (cst != CUBLAS_STATUS_SUCCESS)
         return core::Status::DEVICE_ERROR;
-      if (!TryLtGemmF32(M, N, K, &alpha_f, w32.data<float>(), K,
-                        x.data<float>(), K, &beta_f, res32.data<float>(),
-                        static_cast<int>(out_f), s, CUBLAS_OP_T)) {
-        cublasHandle_t handle = GetCublasHandle();
-        cublasSetStream(handle, s);
-        AXONO_CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, M, N,
-                                       K, &alpha_f, w32.data<float>(), K,
-                                       x.data<float>(), K, &beta_f,
-                                       res32.data<float>(),
-                                       static_cast<int>(out_f)));
-      }
-      core::Status st32 = result.CopyFrom(res32);
-      if (core::cuda::MaybeSync() != cudaSuccess)
-        return core::Status::INTERNAL_ERROR;
-      return st32;
     }
-    core::Tensor out32 = resh.CastTo(core::DataType::FLOAT32);
-    core::Status st = result.CopyFrom(out32);
-    if (core::cuda::MaybeSync() != cudaSuccess)
-      return core::Status::INTERNAL_ERROR;
-    return st;
+    return core::Status::OK;
   }
   if (x.dtype() != weight.dtype() || x.dtype() != result.dtype())
     return core::Status::UNSUPPORTED_TYPE;
