@@ -120,6 +120,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install nanobind numpy scikit-build-core build
 
+      - name: Inspect CUDA install (Windows, debug)
+        if: runner.os == 'Windows' && matrix.cuda.name != 'cpu'
+        shell: pwsh
+        run: |
+          Get-ChildItem "$env:CUDA_PATH" | Select-Object Name
+          Get-ChildItem "$env:CUDA_PATH\lib\x64" -ErrorAction SilentlyContinue | Select-Object -First 20 Name
+
       - name: Install build deps (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
