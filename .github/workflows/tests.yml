@@ -107,7 +107,7 @@ jobs:
 
       - name: Set up CUDA toolchain ${{ matrix.cuda.name }} (Windows)
         if: runner.os == 'Windows' && matrix.cuda.name != 'cpu'
-        uses: Jimver/cuda-toolkit@v2
+        uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: ${{ matrix.cuda.local }}
           method: local

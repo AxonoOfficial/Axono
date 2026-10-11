@@ -107,7 +107,7 @@ jobs:
       # 运行 wheel 的机器才需要驱动)
       - name: Set up CUDA toolchain ${{ matrix.cuda.name }}
         if: matrix.cuda.name != 'cpu'
-        uses: Jimver/cuda-toolkit@v2
+        uses: Jimver/cuda-toolkit@v0.2.36
         with:
           cuda: ${{ matrix.cuda.local }}
           method: local
