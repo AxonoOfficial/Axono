@@ -29,13 +29,13 @@ AXONO_EXPORT bool TryLtGemmF64(int n, int m, int k, const double *alpha,
                                int lda, const double *beta, double *c, int ldc,
                                cudaStream_t stream,
                                cublasOperation_t transa = CUBLAS_OP_N);
-// FP16 gemm: 16F 输入/输出 + 32F 累加 (tensor core)。beta 固定 1.0
-// (调用方先把 result 初始化为 bias 或 0)。
+// 混合精度 gemm: A/B 16F 输入 + C/D 32F 输出 + 32F 累加。
+// beta 默认 1.0 (调用方先把 result 初始化为 bias 或 0)。
 AXONO_EXPORT bool TryLtGemmF16(int n, int m, int k, const __half *b, int ldb,
-                               const __half *a, int lda, __half *c, int ldc,
+                               const __half *a, int lda, void *c, int ldc,
                                cudaStream_t stream,
                                cublasOperation_t transa = CUBLAS_OP_N,
-                               float beta = 1.0f);
+                               float beta = 1.0f, bool out_f32 = true);
 
 }  // namespace cuda
 }  // namespace ops

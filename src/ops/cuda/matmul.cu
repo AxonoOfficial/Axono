@@ -188,7 +188,7 @@ core::Status MatMul(const core::Context &ctx, const core::Tensor &a,
                           static_cast<__half *>(result.data()),
                           static_cast<int>(ldc),
                           axono::core::cuda::AxonoCurrentStream(),
-                          CUBLAS_OP_N, 0.0f)) {
+                          CUBLAS_OP_N, 0.0f, false)) {
           return core::Status::UNSUPPORTED_TYPE;
         }
         break;
