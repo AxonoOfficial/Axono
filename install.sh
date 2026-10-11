@@ -20,6 +20,7 @@ for arg in "$@"; do
   case "$arg" in
     --cuda)    FORCE_CUDA=1 ;;
     --no-cuda) FORCE_CPU=1 ;;
+    # --cuda 为强制构建模式: 仅要求 nvcc (编译不需 GPU; 运行时才需要卡)
     -h|--help)
       sed -n '2,12p' "$0"; exit 0 ;;
     *)
@@ -59,9 +60,7 @@ detect_cuda() {
   driver_ver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
   [ -n "$driver_ver" ] || { echo "no-driver"; return 1; }
 
-  # ③ GPU 存在且驱动版本满足该 nvcc (CUDA 兼容矩阵: driver >= nvcc 要求)
-  #    用 nvidia-smi 报告的 CUDA 版本与 nvcc 主版本比较即可 (驱动自带
-  #    的 CUDA 运行时版本必须 >= 编译工具链版本)。
+  # ③ GPU 存在且驱动版本满足该 nvcc (仅自动检测模式要求; 强制构建跳过)
   local driver_cuda
   driver_cuda=$(nvidia-smi | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | head -1 | grep -oE '[0-9]+\.[0-9]+')
   [ -n "$driver_cuda" ] || { echo "no-driver-cuda"; return 1; }
@@ -72,8 +71,10 @@ detect_cuda() {
   if [ "$driver_major" -lt "$nvcc_major" ]; then
     echo "driver-too-old($driver_cuda < nvcc $nvcc_ver)"; return 1
   fi
-  # 有 GPU 才值得编 CUDA (纯编译也行, 但这里按运行环境判断)
-  if ! nvidia-smi --query-gpu=name --format=csv,noheader | grep -q .; then
+  # 自动检测模式: 有 GPU 才编 CUDA (强制 --cuda 模式跳过 GPU 检查,
+  # 编译本身不需要 GPU — 供 CI 容器打 CUDA wheel 用)
+  if [ "$FORCE_CUDA" != "1" ] && \
+     ! nvidia-smi --query-gpu=name --format=csv,noheader | grep -q .; then
     echo "no-gpu"; return 1
   fi
   echo "cuda:$nvcc_ver"
@@ -115,7 +116,16 @@ if [ "$USE_CUDA" = "1" ]; then
 fi
 
 echo "==> pip install . (WITH_CUDA=$USE_CUDA, jobs=$CMAKE_BUILD_PARALLEL_LEVEL)"
-$PIP install --upgrade ${PIP_ARGS:-} "$@" . "${SETTINGS[@]}"
+# "$@" 里可能混入本脚本的 --cuda/--no-cuda 之外的 pip 参数; 过滤掉
+# install.sh 自身的开关再传给 pip (pip 不认识 --no-cuda 等):
+PIP_EXTRA=()
+for arg in "$@"; do
+  case "$arg" in
+    --cuda|--no-cuda) ;;
+    *) PIP_EXTRA+=("$arg") ;;
+  esac
+done
+$PIP install --upgrade ${PIP_ARGS:-} "${PIP_EXTRA[@]}" . "${SETTINGS[@]}"
 
 echo "==> 完成。验证:"
 $PIP show axono 2>/dev/null | sed -n '1,2p'

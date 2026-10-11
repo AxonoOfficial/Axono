@@ -23,28 +23,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install nanobind numpy pytest scikit-build-core
+      # 直接走 install.sh (自动检测 CUDA; CI 容器无 GPU → CPU 构建),
+      # 与用户实际安装路径完全一致
+      - name: Build and install via install.sh
+        run: bash install.sh --no-cuda
 
-      - name: Configure (CPU)
+      - name: Run tests (against installed package)
         run: |
-          cmake -B build -DPython_EXECUTABLE=$(which python)
-
-      - name: Build
-        run: cmake --build build -j"$(nproc)"
-
-      - name: Locate extension and prepare package
-        run: |
-          SO=$(find build -name 'libaxono*.so' | head -1)
-          echo "Found extension: $SO"
-          mkdir -p axono/python/axono/library
-          cp "$SO" axono/python/axono/library/
-
-      - name: Run tests
-        working-directory: axono/python
-        run: |
+          pip install pytest
+          # 在仓库外运行, 确保 import 的是 site-packages 里安装的 axono
+          # 而不是源码树 (源码树内无编译产物)
+          TESTDIR=$(mktemp -d)
+          cp -r axono/python/tests "$TESTDIR"/
+          cd "$TESTDIR"
           python -m pytest tests -v --tb=short
 
   cuda:

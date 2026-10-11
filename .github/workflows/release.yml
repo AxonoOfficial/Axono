@@ -1,0 +1,97 @@
+name: Release Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号覆盖 (默认读 pyproject.toml)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-wheels:
+    name: Build wheel (${{ matrix.cuda }}, py${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        cuda: [cpu, cuda]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up CUDA toolchain
+        if: matrix.cuda == 'cuda'
+        # 官方 CUDA 安装 (无需 GPU 即可编译; 运行时才需要显卡)
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update -qq
+          # 只装编译必需子集 ( toolkit 约 4GB, nvcc+cublas 头文件即可)
+          sudo apt-get install -y -qq cuda-nvcc-12-6 cuda-cudart-dev-12-6 \
+               libcublas-dev-12-6 cuda-toolkit-12-6 || \
+          sudo apt-get install -y -qq cuda-toolkit-12-6
+          echo "/usr/local/cuda-12.6/bin" >> "$GITHUB_PATH"
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install nanobind numpy scikit-build-core build
+
+      - name: Build wheel
+        run: |
+          if [ "${{ matrix.cuda }}" = "cuda" ]; then
+            bash wheel.sh --cuda --no-build-isolation --outdir "dist/${{ matrix.cuda }}"
+          else
+            bash wheel.sh --no-cuda --outdir "dist/${{ matrix.cuda }}"
+          fi
+        env:
+          PIP: python -m pip
+
+      - name: Smoke test (CPU wheels only; CUDA wheel 需 GPU 运行时)
+        if: matrix.cuda == 'cpu'
+        run: |
+          pip install dist/cpu/axono-*.whl
+          python -c "import axono; print('import OK', axono.__version__)"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.cuda }}-py${{ matrix.python-version }}
+          path: dist/${{ matrix.cuda }}/axono-*.whl
+
+  publish:
+    name: Publish to GitHub Release
+    needs: build-wheels
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all wheels (按 artifact 分目录保留 cpu/cuda)
+        uses: actions/download-artifact@v4
+        with:
+          path: wheels
+          pattern: wheel-*
+
+      - name: List wheels
+        run: find wheels -name 'axono-*.whl' | sort
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # 手动触发: 取最新 release
+            RELEASE_TAG=$(gh release list -R "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
+          fi
+          for f in wheels/*/axono-*.whl; do
+            gh release upload "$RELEASE_TAG" "$f" -R "$GITHUB_REPOSITORY" --clobber
+          done
+          echo "uploaded to release $RELEASE_TAG"
