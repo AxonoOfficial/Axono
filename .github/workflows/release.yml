@@ -96,6 +96,9 @@ jobs:
           - { name: cu126, tag: cu126,  local: "12.6.3" }
           - { name: cu128, tag: cu128,  local: "12.8.1" }
           - { name: cu130, tag: cu130,  local: "13.0.1" }
+        exclude:
+          # nvcc 11.8 与现 runner 工具链不兼容 (MSB8052), Windows 不出 cu118
+          - { cuda: { name: cu118 } }
     steps:
       - uses: actions/checkout@v4
 
