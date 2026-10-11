@@ -68,22 +68,32 @@ jobs:
         echo "download_url=$URL" >> "$GITHUB_OUTPUT"
         
     - name: Generate Script
-      run: cat > .github/job.py << EOF
-           import os
-           DOWNLOAD_URL = "${DOWNLOAD_URL}"
-           os.system('conda create -n TestEnv python=3.12 cuda-toolkit=12.8 cudnn -y')
-           os.system('wget -O artifact.zip '+DOWNLOAD_URL)
-           os.system('unzip artifact.zip')
-           os.system('/opt/conda/envs/TestEnv/bin/bash install.sh')
-           EOF
-           
-    - uses: "lvyufeng/action-kaggle-gpu-test@latest"
-      name: Build And Run
+      run: |
+          mkdir -p .github
+          {
+            printf '%s\n' 'import os'
+            printf '%s\n' 'import subprocess'
+            printf '%s\n' ''
+            printf '%s\n' "DOWNLOAD_URL = \"${DOWNLOAD_URL}\""
+            printf '%s\n' ''
+            printf '%s\n' 'os.system("conda create -n TestEnv python=3.12 -y")'
+            printf '%s\n' 'os.system("conda run -n TestEnv pip install --upgrade pip")'
+            printf '%s\n' ''
+            printf '%s\n' 'subprocess.run(["wget", "-O", "artifact.zip", DOWNLOAD_URL], check=True)'
+            printf '%s\n' 'os.system("unzip -o artifact.zip")'
+            printf '%s\n' ''
+            printf '%s\n' 'os.system("conda run -n TestEnv bash install.sh")'
+          } > .github/job.py
+
+          echo "===== job.py ====="
+          cat .github/job.py
+    - name: Build And Run
+      uses: "lvyufeng/action-kaggle-gpu-test@latest"
       with:
-        kaggle_username: "${{ secrets.KAGGLE_USERNAME }}"
-        kaggle_key: "${{ secrets.KAGGLE_API_KEY }}"
-        kernel_name: Cybertron
-        kernel_job_file: .github/job.py
+          kaggle_username: "${{ secrets.KAGGLE_USERNAME }}"
+          kaggle_key: "${{ secrets.KAGGLE_API_KEY }}"
+          kernel_name: Cybertron
+          kernel_job_file: .github/job.py
 
   cuda:
     name: CUDA tests (V100-class, cuBLAS)
