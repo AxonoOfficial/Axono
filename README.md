@@ -47,7 +47,8 @@ Axono 是一个轻量级的人工智能算法库，旨在为教学、研究与�
 
 ## 安装（Linux）
 ```bash
-# 源码编译安装 (自动检测 CUDA 兼容环境; --cuda 强制启用 / --no-cuda 纯 CPU)
+# 源码编译安装 (自动检测 CUDA 兼容环境; --cuda 强制启用 / --no-cuda 纯 CPU;
+# --cuda --ignore-drivers 只查 nvcc, 不要求本机有驱动/GPU — CI/无卡编译机用)
 bash install.sh
 ```
 ```bash
@@ -67,6 +68,20 @@ pip install axono --index-url=https://download.axono.org/whl/cu125/
 pip install axono --index-url=https://download.axono.org/whl/cpu/
 ```
 > Windows 系列暂未测试设备，故不提供安装方法。
+
+## 安装（Windows, PowerShell）
+```powershell
+# 源码编译安装 (自动检测 CUDA; -Cuda 强制 / -NoCuda 纯 CPU;
+# -Cuda -IgnoreDrivers 只查 nvcc, 不要求本机有驱动/GPU)
+.\install.ps1
+```
+```powershell
+# 导出 wheel 安装包 (与 install.ps1 相同的 CUDA 检测参数)
+.\wheel.ps1                # 产物 axono-*.whl
+pip install .\axono-*.whl
+```
+> 需要 Visual Studio Build Tools (C++ 工作负载); CUDA 构建另需 CUDA
+> Toolkit (nvcc), 编译本身不需要 GPU。
 
 ## 快速上手
 ```python

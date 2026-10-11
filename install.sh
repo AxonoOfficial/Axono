@@ -5,6 +5,8 @@
 #   bash install.sh                 # 自动检测: 有兼容 CUDA 环境则启用 CUDA
 #   bash install.sh --cuda          # 强制启用 CUDA (无兼容环境则报错退出)
 #   bash install.sh --no-cuda       # 强制纯 CPU
+#   bash install.sh --cuda --ignore-drivers  # 强制 CUDA 且只查 nvcc,
+#                                   # 不要求本机有驱动/GPU (CI 编译用)
 #
 # 可选环境变量:
 #   CMAKE_BUILD_PARALLEL_LEVEL=N    # 编译并行度 (默认取 nproc)
@@ -16,10 +18,12 @@ cd "$(dirname "$0")"
 
 FORCE_CUDA=0
 FORCE_CPU=0
+IGNORE_DRIVERS="${IGNORE_DRIVERS:-0}"
 for arg in "$@"; do
   case "$arg" in
     --cuda)    FORCE_CUDA=1 ;;
     --no-cuda) FORCE_CPU=1 ;;
+    --ignore-drivers) IGNORE_DRIVERS=1 ;;
     # --cuda 为强制构建模式: 仅要求 nvcc (编译不需 GPU; 运行时才需要卡)
     -h|--help)
       sed -n '2,12p' "$0"; exit 0 ;;
@@ -51,6 +55,13 @@ detect_cuda() {
   local nvcc_ver
   nvcc_ver=$(nvcc --version | grep -oE 'release [0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+')
   [ -n "$nvcc_ver" ] || { echo "no-nvcc"; return 1; }
+
+  # --ignore-drivers: 编译 CUDA 不需要驱动/GPU, 只查 nvcc
+  # (wheel 运行时才需要目标机器有驱动; CI/无卡编译机用)
+  if [ "$IGNORE_DRIVERS" = "1" ]; then
+    echo "cuda:$nvcc_ver (drivers ignored)"
+    return 0
+  fi
 
   # ② 驱动 + GPU: nvidia-smi
   if ! command -v nvidia-smi >/dev/null 2>&1; then
