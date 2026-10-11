@@ -84,13 +84,18 @@ jobs:
           path: dist/${{ matrix.cuda.name }}/axono-*.whl
 
   build-windows:
-    name: Windows wheel (${{ matrix.cuda }}, py${{ matrix.python-version }})
+    name: Windows wheel (${{ matrix.cuda.name }}, py${{ matrix.python-version }})
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        cuda: [cpu]
+        cuda:
+          - { name: cpu,   tag: "",     local: "" }
+          - { name: cu118, tag: cu118,  local: "11.8.0" }
+          - { name: cu126, tag: cu126,  local: "12.6.3" }
+          - { name: cu128, tag: cu128,  local: "12.8.1" }
+          - { name: cu130, tag: cu130,  local: "13.0.1" }
     steps:
       - uses: actions/checkout@v4
 
@@ -98,16 +103,34 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # hosted runner 无 GPU; -IgnoreDrivers 只查 nvcc (编译不需 GPU,
+      # 运行 wheel 的机器才需要驱动)
+      - name: Set up CUDA toolchain ${{ matrix.cuda.name }}
+        if: matrix.cuda.name != 'cpu'
+        uses: Jimver/cuda-toolkit@v2
+        with:
+          cuda: ${{ matrix.cuda.local }}
+          method: local
+          sub-packages: '["nvcc", "visual_studio_integration"]'
+          log-file-suffix: '${{ matrix.cuda.name }}-py${{ matrix.python-version }}.txt'
+
       - name: Install build deps
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install nanobind numpy scikit-build-core build
 
       - name: Build wheel
         shell: pwsh
-        run: .\wheel.ps1 -NoCuda -OutDir "dist/cpu"
+        run: |
+          if ("${{ matrix.cuda.name }}" -eq "cpu") {
+            .\wheel.ps1 -NoCuda -OutDir "dist/cpu"
+          } else {
+            .\wheel.ps1 -Cuda -IgnoreDrivers -CudaTag "${{ matrix.cuda.tag }}" -OutDir "dist/${{ matrix.cuda.name }}"
+          }
 
-      - name: Smoke test (CPU wheels only)
+      - name: Smoke test (CPU wheels only; CUDA wheel 需 GPU 运行时)
+        if: matrix.cuda.name == 'cpu'
         shell: pwsh
         run: |
           pip install (Get-Item dist/cpu/axono-*.whl).FullName
@@ -116,8 +139,8 @@ jobs:
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-win-${{ matrix.cuda }}-py${{ matrix.python-version }}
-          path: dist/cpu/axono-*.whl
+          name: wheel-win-${{ matrix.cuda.name }}-py${{ matrix.python-version }}
+          path: dist/${{ matrix.cuda.name }}/axono-*.whl
 
   publish:
     name: Publish to GitHub Release

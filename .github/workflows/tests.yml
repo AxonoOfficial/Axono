@@ -79,17 +79,14 @@ jobs:
         os: [ubuntu-24.04, windows-2022]
         python-version: ["3.10", "3.13"]
         cuda:
-          - { name: cpu,   tag: "",     pkg: "",      repo: "" }
-          - { name: cu118, tag: cu118,  pkg: "11-8",  repo: ubuntu2204 }
-          - { name: cu126, tag: cu126,  pkg: "12-6",  repo: ubuntu2404 }
-          - { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404 }
-          - { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404 }
+          - { name: cpu,   tag: "",     pkg: "",      repo: "",        local: "" }
+          - { name: cu118, tag: cu118,  pkg: "11-8",  repo: ubuntu2204, local: "11.8.0" }
+          - { name: cu126, tag: cu126,  pkg: "12-6",  repo: ubuntu2404, local: "12.6.3" }
+          - { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404, local: "12.8.1" }
+          - { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404, local: "13.0.1" }
         exclude:
-          # CUDA wheel 只在 Linux 构建 (Windows 仅 CPU)
-          - { os: windows-2022, cuda: { name: cu118 } }
-          - { os: windows-2022, cuda: { name: cu126 } }
-          - { os: windows-2022, cuda: { name: cu128 } }
-          - { os: windows-2022, cuda: { name: cu130 } }
+          # 无需 exclude: Windows CUDA 用 Jimver/cuda-toolkit, Linux CUDA
+          # 用 apt; cu118 runner 由 runs-on 条件切到 ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -97,7 +94,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Set up CUDA toolchain ${{ matrix.cuda.name }}
+      - name: Set up CUDA toolchain ${{ matrix.cuda.name }} (Linux)
         if: runner.os == 'Linux' && matrix.cuda.name != 'cpu'
         run: |
           wget -q https://developer.download.nvidia.com/compute/cuda/repos/${{ matrix.cuda.repo }}/x86_64/cuda-keyring_1.1-1_all.deb
@@ -110,6 +107,15 @@ jobs:
                 cuda-toolkit-${{ matrix.cuda.pkg }})
           NVCC=$(find /usr/local/cuda-*/bin -name nvcc 2>/dev/null | head -1)
           echo "$(dirname "$NVCC")" >> "$GITHUB_PATH"
+
+      - name: Set up CUDA toolchain ${{ matrix.cuda.name }} (Windows)
+        if: runner.os == 'Windows' && matrix.cuda.name != 'cpu'
+        uses: Jimver/cuda-toolkit@v2
+        with:
+          cuda: ${{ matrix.cuda.local }}
+          method: local
+          sub-packages: '["nvcc", "visual_studio_integration"]'
+          log-file-suffix: '${{ matrix.cuda.name }}-py${{ matrix.python-version }}.txt' 
 
       - name: Install build deps (Linux)
         if: runner.os == 'Linux'
@@ -140,7 +146,12 @@ jobs:
       - name: Build wheel (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: .\wheel.ps1 -NoCuda -OutDir "dist/cpu"
+        run: |
+          if ("${{ matrix.cuda.name }}" -eq "cpu") {
+            .\wheel.ps1 -NoCuda -OutDir "dist/cpu"
+          } else {
+            .\wheel.ps1 -Cuda -IgnoreDrivers -CudaTag "${{ matrix.cuda.tag }}" -OutDir "dist/${{ matrix.cuda.name }}"
+          }
 
       - name: Smoke test (CPU wheels only)
         if: matrix.cuda.name == 'cpu'
