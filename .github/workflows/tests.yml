@@ -68,13 +68,14 @@ jobs:
         echo "download_url=$URL" >> "$GITHUB_OUTPUT"
         
     - name: Generate Script
-      run: cat > .github/job.py <<'EOF'
+      run: cat > .github/job.py << EOF
            import os
            DOWNLOAD_URL = "${DOWNLOAD_URL}"
-           os.system('conda create -n TestEnv python=3.12 cudatoolkit=12.8 cudnn -y')
-           os.system('wget '+DOWNLOAD_URL)
-           os.system('unzip ./*.zip')
-           os.system('bash install.sh')
+           os.system('conda create -n TestEnv python=3.12 cuda-toolkit=12.8 cudnn -y')
+           os.system('wget -O artifact.zip '+DOWNLOAD_URL)
+           os.system('unzip artifact.zip')
+           os.system('/opt/conda/envs/TestEnv/bin/bash install.sh')
+           EOF
            
     - uses: "lvyufeng/action-kaggle-gpu-test@latest"
       name: Build And Run
