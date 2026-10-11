@@ -85,9 +85,10 @@ jobs:
           - { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404, local: "12.8.1" }
           - { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404, local: "13.0.1" }
         exclude:
-          # nvcc 11.8 需旧 MSVC 工具集, 但 CPython 3.13 扩展构建要求
-          # 新 toolset (MSB8052) — Windows cu118 只提供 py3.10 wheel
-          - { os: windows-2022, cuda: { name: cu118 }, python-version: "3.13" }
+          # nvcc 11.8 只兼容旧 MSVC 工具集 (14.29/14.40), 但它们与
+          # 当前 VS 17.14 的 build targets 不兼容 (MSB8052) —
+          # Windows cu118 无法在现 runner 上构建, 只提供 Linux wheel
+          - { os: windows-2022, cuda: { name: cu118 } }
     steps:
       - uses: actions/checkout@v4
 
