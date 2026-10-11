@@ -6,6 +6,8 @@
 #   bash wheel.sh                   # 自动检测 CUDA 兼容环境并编入 wheel
 #   bash wheel.sh --cuda            # 强制 CUDA (不兼容则报错)
 #   bash wheel.sh --no-cuda         # 强制纯 CPU
+#   bash wheel.sh --cuda --ignore-drivers          # 强制 CUDA, 只查 nvcc
+#                                    # (CI/无卡编译机; 运行时才需要驱动)
 #   bash wheel.sh --no-cuda --outdir /tmp/wheels   # 额外参数透传给 pip wheel
 #
 # 安装产物:
@@ -25,12 +27,14 @@ source <(sed -n '/^detect_cuda()/,/^}/p' "$(dirname "$0")/install.sh")
 
 FORCE_CUDA=0
 FORCE_CPU=0
+IGNORE_DRIVERS="${IGNORE_DRIVERS:-0}"
 OUTDIR=""
 PASS_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --cuda)    FORCE_CUDA=1 ;;
     --no-cuda) FORCE_CPU=1 ;;
+    --ignore-drivers) IGNORE_DRIVERS=1 ;;
     --outdir)  OUTDIR="$2"; shift ;;
     -h|--help)
       sed -n '2,18p' "$0"; exit 0 ;;

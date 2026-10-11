@@ -49,7 +49,7 @@ jobs:
       - name: Build wheel
         run: |
           if [ "${{ matrix.cuda }}" = "cuda" ]; then
-            bash wheel.sh --cuda --no-build-isolation --outdir "dist/${{ matrix.cuda }}"
+            bash wheel.sh --cuda --ignore-drivers --no-build-isolation --outdir "dist/${{ matrix.cuda }}"
           else
             bash wheel.sh --no-cuda --outdir "dist/${{ matrix.cuda }}"
           fi
