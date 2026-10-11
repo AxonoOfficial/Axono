@@ -144,8 +144,9 @@ jobs:
 
       - name: Smoke test (CPU wheels only)
         if: matrix.cuda.name == 'cpu'
+        shell: pwsh
         run: |
-          pip install dist/cpu/axono-*.whl
+          pip install (Get-Item dist/cpu/axono-*.whl).FullName
           python -c "import axono; print('import OK', axono.__version__)"
 
   cuda:
