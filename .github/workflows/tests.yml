@@ -62,15 +62,17 @@ jobs:
         run: |
           pip install pytest
           $testdir = Join-Path $env:RUNNER_TEMP "axono-tests"
-          Copy-Item -Recurse axono/python/tests $testdir
+          New-Item -ItemType Directory -Force -Path $testdir | Out-Null
+          Copy-Item -Recurse -Force axono/python/tests (Join-Path $testdir "tests")
           Set-Location $testdir
           python -m pytest tests -v --tb=short
 
   build-wheel:
     # 预演 Release 全矩阵: release.yml 发布的每个组合都在 PR 上构建一遍,
     # 保证发布不会因脚本/依赖变化而挂
-    name: Build wheel (${{ matrix.os }}, ${{ matrix.cuda.name }}, py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
+    name: Build wheel (${{ matrix.cuda.name }}, py${{ matrix.python-version }})
+    # cu118 只在 ubuntu2204 repo 提供 (2404 上依赖冲突), runner 相应切换
+    runs-on: ${{ matrix.os == 'windows-2022' && 'windows-2022' || (matrix.cuda.name == 'cu118' && 'ubuntu-22.04' || 'ubuntu-24.04') }}
     strategy:
       fail-fast: false
       matrix:
@@ -104,7 +106,8 @@ jobs:
           (sudo apt-get install -y -qq cuda-nvcc-${{ matrix.cuda.pkg }} \
              cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
              cuda-curand-dev-${{ matrix.cuda.pkg }} \
-             || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }})
+             || sudo apt-get install -y -qq --no-install-recommends \
+                cuda-toolkit-${{ matrix.cuda.pkg }})
           NVCC=$(find /usr/local/cuda-*/bin -name nvcc 2>/dev/null | head -1)
           echo "$(dirname "$NVCC")" >> "$GITHUB_PATH"
 

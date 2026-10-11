@@ -19,8 +19,9 @@ env:
 
 jobs:
   build-linux:
-    name: Linux wheel (${{ matrix.cuda }}, py${{ matrix.python-version }})
-    runs-on: ubuntu-24.04
+    name: Linux wheel (${{ matrix.cuda.name }}, py${{ matrix.python-version }})
+    # cu118 只在 ubuntu2204 repo 提供 (2404 上依赖冲突), runner 相应切换
+    runs-on: ${{ matrix.cuda.name == 'cu118' && 'ubuntu-22.04' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -47,7 +48,8 @@ jobs:
           (sudo apt-get install -y -qq cuda-nvcc-${{ matrix.cuda.pkg }} \
              cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
              cuda-curand-dev-${{ matrix.cuda.pkg }} \
-             || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }})
+             || sudo apt-get install -y -qq --no-install-recommends \
+                cuda-toolkit-${{ matrix.cuda.pkg }})
           echo "/usr/local/cuda-${{ matrix.cuda.pkg }}*/bin" > /dev/null
           NVCC=$(find /usr/local/cuda-*/bin -name nvcc 2>/dev/null | head -1)
           echo "$(dirname "$NVCC")" >> "$GITHUB_PATH"
