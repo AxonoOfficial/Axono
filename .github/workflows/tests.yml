@@ -115,6 +115,17 @@ jobs:
           # 指定 cublas/curand 子包会静默失败 (lib 未装上), 全装最稳
           log-file-suffix: '${{ matrix.cuda.name }}-py${{ matrix.python-version }}.txt'
 
+      - name: Pin MSVC 14.40 for CUDA 11.8 (Windows)
+        # nvcc 11.8 不兼容最新 MSVC 19.44 (STL 要求 CUDA 12.4+), 用旧版工具集
+        if: runner.os == 'Windows' && matrix.cuda.name == 'cu118'
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          (Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Sort-Object Name) | ForEach-Object { $_.Name }
+          $v = (Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | Where-Object { $_.Name -like '14.40*' } | Select-Object -First 1).Name
+          if (-not $v) { throw "MSVC 14.40 not installed on runner" }
+          "VCToolsVersion=$v" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Pinned VCToolsVersion=$v"
+
       - name: Install build deps (Linux)
         if: runner.os == 'Linux'
         run: |
