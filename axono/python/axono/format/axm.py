@@ -48,8 +48,12 @@ def _align_up(n: int) -> int:
     return (n + _ALIGN - 1) // _ALIGN * _ALIGN
 
 
-def save_axm(state_dict: dict, path: str, meta: dict | None = None,
-             dtype: str | np.dtype | None = None) -> None:
+def save_axm(
+    state_dict: dict,
+    path: str,
+    meta: dict | None = None,
+    dtype: str | np.dtype | None = None,
+) -> None:
     """把 {name: ndarray} 写入 .axm 文件。
 
     dtype: 可选统一转换 ("float32"/"float16"/np.dtype); None = 保留原 dtype。
@@ -58,17 +62,22 @@ def save_axm(state_dict: dict, path: str, meta: dict | None = None,
     data_off = 0
     chunks = []
     for name, arr in state_dict.items():
-        a = np.ascontiguousarray(arr, dtype=dtype) if dtype is not None \
+        a = (
+            np.ascontiguousarray(arr, dtype=dtype)
+            if dtype is not None
             else np.ascontiguousarray(arr)
+        )
         raw = a.tobytes()
         chunks.append(raw)
-        entries.append({
-            "name": name,
-            "dtype": str(a.dtype),
-            "shape": list(a.shape),
-            "offset": data_off,
-            "size": len(raw),
-        })
+        entries.append(
+            {
+                "name": name,
+                "dtype": str(a.dtype),
+                "shape": list(a.shape),
+                "offset": data_off,
+                "size": len(raw),
+            }
+        )
         data_off = _align_up(data_off + len(raw))
     index = {"tensors": entries, "meta": meta or {}}
     idx_bytes = json.dumps(index).encode("utf-8")
@@ -109,9 +118,13 @@ def load_axm(path: str, mmap: bool = True) -> dict:
     mode = "r" if mmap else None
     out = {}
     for t in idx["tensors"]:
-        arr = np.memmap(path, dtype=t["dtype"], mode=mode,
-                        offset=data_start + t["offset"],
-                        shape=tuple(t["shape"]))
+        arr = np.memmap(
+            path,
+            dtype=t["dtype"],
+            mode=mode,
+            offset=data_start + t["offset"],
+            shape=tuple(t["shape"]),
+        )
         out[t["name"]] = arr
     return out
 
@@ -133,6 +146,10 @@ class AxmReader:
     def get(self, name: str) -> np.ndarray:
         """读取单个张量 (memmap 视图)。"""
         t = self._tensors[name]
-        return np.memmap(self.path, dtype=t["dtype"], mode="r",
-                         offset=self.data_start + t["offset"],
-                         shape=tuple(t["shape"]))
+        return np.memmap(
+            self.path,
+            dtype=t["dtype"],
+            mode="r",
+            offset=self.data_start + t["offset"],
+            shape=tuple(t["shape"]),
+        )

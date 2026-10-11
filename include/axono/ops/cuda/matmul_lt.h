@@ -20,8 +20,8 @@ AXONO_EXPORT bool CublasLtEnabled();
 // 参数语义与 cublasSgemm/Dgemm 的列主序映射一致 (见 matmul.cu 头注释):
 //   C'(n x m) = B'(n x k) * A'(k x m)
 AXONO_EXPORT bool TryLtGemmF32(int n, int m, int k, const float *alpha,
-                               const float *b, int ldb, const float *a,
-                               int lda, const float *beta, float *c, int ldc,
+                               const float *b, int ldb, const float *a, int lda,
+                               const float *beta, float *c, int ldc,
                                cudaStream_t stream,
                                cublasOperation_t transa = CUBLAS_OP_N);
 AXONO_EXPORT bool TryLtGemmF64(int n, int m, int k, const double *alpha,

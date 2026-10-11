@@ -1,5 +1,7 @@
 // 序列/LLM 结构算子 (CPU): embedding/rope/scaled_dot_product_attention/
 // concat/slice/argmax_last_dim。仅浮点 (attention/rope 仅 FLOAT32)。
+#include "axono/ops/cpu/sequence.h"
+
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -8,7 +10,6 @@
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
-#include "axono/ops/cpu/sequence.h"
 
 namespace axono {
 namespace ops {
@@ -60,7 +61,8 @@ core::Status Rope(const core::Context &ctx, const core::Tensor &x,
   const size_t heads = x.shape()[1];
   const size_t dim = x.shape()[2];
   if (dim % 2 != 0) return core::Status::INVALID_ARGUMENT;
-  if (pos_ids.num_elements() != rows || pos_ids.dtype() != core::DataType::INT64)
+  if (pos_ids.num_elements() != rows ||
+      pos_ids.dtype() != core::DataType::INT64)
     return core::Status::UNSUPPORTED_TYPE;
   core::Status st = result.Resize(x.shape());
   if (st != core::Status::OK) return st;
@@ -77,8 +79,8 @@ core::Status Rope(const core::Context &ctx, const core::Tensor &x,
       float *dst = rp + (r * heads + h) * dim;
       const float p = static_cast<float>(pos[r]);
       for (size_t i = 0; i < half; ++i) {
-        const float freq =
-            std::pow(theta, -2.0f * static_cast<float>(i) / static_cast<float>(dim));
+        const float freq = std::pow(
+            theta, -2.0f * static_cast<float>(i) / static_cast<float>(dim));
         const float ang = p * freq;
         const float c = std::cos(ang), s = std::sin(ang);
         const float a = src[i], b = src[i + half];
@@ -133,12 +135,14 @@ core::Status RopeWithCosSin(const core::Context &ctx, const core::Tensor &x,
 }
 
 // RoPE 变体 2: 3D 位置 (T/H/W) 交错 (stride-3) 频率重组。
-// 逐 (r,h,i): freq_i 取 T 基础, i%3==1 且 i<3*h_sec 用 H, i%3==2 且 i<3*w_sec 用 W。
+// 逐 (r,h,i): freq_i 取 T 基础, i%3==1 且 i<3*h_sec 用 H, i%3==2 且 i<3*w_sec
+// 用 W。
 core::Status MropeCosSin(const core::Context &ctx, const core::Tensor &pos,
                          const core::Tensor &inv_freq, int h_sec, int w_sec,
                          core::Tensor &cos_out, core::Tensor &sin_out) {
   (void)ctx;
-  if (pos.ndim() != 2 || pos.shape()[0] != 3 || pos.dtype() != core::DataType::INT64)
+  if (pos.ndim() != 2 || pos.shape()[0] != 3 ||
+      pos.dtype() != core::DataType::INT64)
     return core::Status::SHAPE_MISMATCH;
   const size_t rows = pos.shape()[1];
   const size_t half = inv_freq.shape()[0];
@@ -302,7 +306,8 @@ core::Status Concat(const core::Context &ctx, const core::Tensor &a,
   if (a.ndim() < 1 || a.ndim() != b.ndim() || a.dtype() != b.dtype())
     return core::Status::INVALID_ARGUMENT;
   const size_t nd = a.ndim();
-  size_t ax = axis < 0 ? nd + static_cast<size_t>(axis) : static_cast<size_t>(axis);
+  size_t ax =
+      axis < 0 ? nd + static_cast<size_t>(axis) : static_cast<size_t>(axis);
   if (ax >= nd) return core::Status::INVALID_ARGUMENT;
   for (size_t i = 0; i < nd; ++i) {
     if (i != ax && a.shape()[i] != b.shape()[i])
@@ -316,7 +321,7 @@ core::Status Concat(const core::Context &ctx, const core::Tensor &a,
   // 按最外层 (axis 之前) 的块拷贝: outer = prod(shape[:axis]), inner 之后连续
   size_t outer = 1;
   for (size_t i = 0; i < ax; ++i) outer *= a.shape()[i];
-  const size_t a_inner = a.num_elements() / outer;   // 每 outer 块元素数
+  const size_t a_inner = a.num_elements() / outer;  // 每 outer 块元素数
   const size_t b_inner = b.num_elements() / outer;
   const size_t a_bytes = a_inner * core::GetDataTypeSize(a.dtype());
   const size_t b_bytes = b_inner * core::GetDataTypeSize(b.dtype());
@@ -332,9 +337,8 @@ core::Status Concat(const core::Context &ctx, const core::Tensor &a,
   return core::Status::OK;
 }
 
-core::Status Slice(const core::Context &ctx, const core::Tensor &x,
-                   size_t axis, size_t start, size_t length,
-                   core::Tensor &result) {
+core::Status Slice(const core::Context &ctx, const core::Tensor &x, size_t axis,
+                   size_t start, size_t length, core::Tensor &result) {
   (void)ctx;
   if (x.ndim() < 1) return core::Status::INVALID_ARGUMENT;
   if (axis >= x.ndim() || start + length > x.shape()[axis])
@@ -347,8 +351,8 @@ core::Status Slice(const core::Context &ctx, const core::Tensor &x,
 
   size_t outer = 1;
   for (size_t i = 0; i < axis; ++i) outer *= x.shape()[i];
-  const size_t row = x.num_elements() / x.shape()[axis] /
-                     outer;  // axis 之后每段元素数
+  const size_t row =
+      x.num_elements() / x.shape()[axis] / outer;  // axis 之后每段元素数
   const size_t src_len = x.shape()[axis];
   const size_t seg = row * core::GetDataTypeSize(x.dtype());
   const char *xp = static_cast<const char *>(x.data());

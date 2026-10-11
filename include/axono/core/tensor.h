@@ -116,7 +116,6 @@ class Tensor {
       "cpu";  // 设备看这里喵，后续会出一个文档方便你们理解底层运行逻辑~希望越来越多人PR哦~
   size_t num_elements_ = 0;
   std::shared_ptr<void> data_;
-
 };
 
 }  // namespace core

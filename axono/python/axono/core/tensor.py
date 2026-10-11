@@ -111,7 +111,7 @@ def _tensor_from_numpy_ref(array: np.ndarray) -> "Tensor":
     生命周期: nanobind keep_alive 使 Tensor 持有 array 引用;
     写入该 Tensor 会改写源数组 (共享内存), 数组须 C 连续 fp32/int64。
     """
-    # np.asarray: memmap/子类 → 基类 ndarray 视图 (零拷贝), 让 nanobind 
+    # np.asarray: memmap/子类 → 基类 ndarray 视图 (零拷贝), 让 nanobind
     # 的 nb::ndarray 签名能匹配。fp16 memmap (np.float16) 先零拷贝 view 成
     # uint16 (同字节), C++ 侧识别 uint16 → FLOAT16 借用。
     arr = np.asarray(array)
@@ -149,7 +149,9 @@ def _tensor_copy_from_numpy(self, array: np.ndarray) -> "Tensor":
         )
     source = Tensor.from_numpy(np.ascontiguousarray(array))
     if source.dtype != self.dtype:
-        raise ValueError(f"copy_from_numpy: dtype 不匹配 {source.dtype} vs {self.dtype}")
+        raise ValueError(
+            f"copy_from_numpy: dtype 不匹配 {source.dtype} vs {self.dtype}"
+        )
     self.copy_from(source)
     return self
 
@@ -253,9 +255,13 @@ def _tensor_is_same_shape(self, other: "Tensor") -> bool:
     return self.is_same_shape(other)
 
 
-def _tensor_randn(shape, dtype: DataType = DataType.FLOAT32,
-                  device: str | None = None, mean: float = 0.0,
-                  stddev: float = 1.0) -> "Tensor":
+def _tensor_randn(
+    shape,
+    dtype: DataType = DataType.FLOAT32,
+    device: str | None = None,
+    mean: float = 0.0,
+    stddev: float = 1.0,
+) -> "Tensor":
     return _orig["randn"](
         list(shape),
         dtype=dtype,
@@ -265,22 +271,25 @@ def _tensor_randn(shape, dtype: DataType = DataType.FLOAT32,
     )
 
 
-def _tensor_zeros(shape, dtype: DataType = DataType.FLOAT32,
-                  device: str | None = None) -> "Tensor":
+def _tensor_zeros(
+    shape, dtype: DataType = DataType.FLOAT32, device: str | None = None
+) -> "Tensor":
     tensor = Tensor(dtype, list(shape), device=device or get_default_device())
     tensor.fill_zero()
     return tensor
 
 
-def _tensor_ones(shape, dtype: DataType = DataType.FLOAT32,
-                 device: str | None = None) -> "Tensor":
+def _tensor_ones(
+    shape, dtype: DataType = DataType.FLOAT32, device: str | None = None
+) -> "Tensor":
     tensor = Tensor(dtype, list(shape), device=device or get_default_device())
     tensor.fill(1)
     return tensor
 
 
-def _tensor_full(shape, value, dtype: DataType = DataType.FLOAT32,
-                 device: str | None = None) -> "Tensor":
+def _tensor_full(
+    shape, value, dtype: DataType = DataType.FLOAT32, device: str | None = None
+) -> "Tensor":
     tensor = Tensor(dtype, list(shape), device=device or get_default_device())
     tensor.fill(value)
     return tensor

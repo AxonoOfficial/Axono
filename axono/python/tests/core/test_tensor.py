@@ -120,9 +120,13 @@ class TestNumpyInterop:
         np.testing.assert_array_equal(t.to_numpy(), arr)
 
     def test_roundtrip_dtypes(self, device):
-        for np_dtype, in [
-            (np.int8,), (np.int16,), (np.int32,), (np.int64,),
-            (np.float32,), (np.float64,),
+        for (np_dtype,) in [
+            (np.int8,),
+            (np.int16,),
+            (np.int32,),
+            (np.int64,),
+            (np.float32,),
+            (np.float64,),
         ]:
             arr = (np.arange(6) + 1).astype(np_dtype).reshape(2, 3)
             t = Tensor.from_numpy(arr).to(device)

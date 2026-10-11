@@ -20,9 +20,7 @@ from axono import nn
 
 def _kv(seq, n_kv, d, device, seed=0):
     rng = np.random.default_rng(seed)
-    t = axono.Tensor.from_numpy(
-        rng.standard_normal((seq, n_kv, d)).astype(np.float32)
-    )
+    t = axono.Tensor.from_numpy(rng.standard_normal((seq, n_kv, d)).astype(np.float32))
     return t.to(device) if device != "cpu" else t
 
 
@@ -46,8 +44,9 @@ class TestDynamicKVCache:
         assert len(cache) == 4
         k, v = cache.get(0)
         kn = k.to_numpy()
-        np.testing.assert_allclose(kn[:3], _kv(3, 2, 4, device, 0).to_numpy(),
-                                   rtol=1e-6)
+        np.testing.assert_allclose(
+            kn[:3], _kv(3, 2, 4, device, 0).to_numpy(), rtol=1e-6
+        )
         np.testing.assert_allclose(kn[3], k2.to_numpy()[0], rtol=1e-6)
         assert v.to_numpy().shape == (4, 2, 4)
 
@@ -109,8 +108,7 @@ class TestDynamicKVCache:
         np.testing.assert_allclose(
             cache.get(0)[0].to_numpy(),
             np.concatenate(
-                [_kv(1, 1, 4, "cpu", 2).to_numpy(),
-                 _kv(1, 1, 4, "cpu", 3).to_numpy()]
+                [_kv(1, 1, 4, "cpu", 2).to_numpy(), _kv(1, 1, 4, "cpu", 3).to_numpy()]
             ),
             rtol=1e-6,
         )

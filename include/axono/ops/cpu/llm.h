@@ -13,22 +13,20 @@ namespace cpu {
 
 // 数值稳定 softmax: 减行最大值后 exp/sum。
 AXONO_EXPORT core::Status Softmax(const core::Context &ctx,
-                                  const core::Tensor &x,
-                                  core::Tensor &result);
+                                  const core::Tensor &x, core::Tensor &result);
 // log_softmax = x - log(sum(exp(x - max)))。
 AXONO_EXPORT core::Status LogSoftmax(const core::Context &ctx,
                                      const core::Tensor &x,
                                      core::Tensor &result);
 // GELU (精确 erf 式): 0.5*x*(1+erf(x/sqrt(2)))。
-AXONO_EXPORT core::Status Gelu(const core::Context &ctx,
-                               const core::Tensor &x, core::Tensor &result);
+AXONO_EXPORT core::Status Gelu(const core::Context &ctx, const core::Tensor &x,
+                               core::Tensor &result);
 // GELU (tanh 近似式): 0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715 x^3)))。
 AXONO_EXPORT core::Status GeluTanh(const core::Context &ctx,
-                                   const core::Tensor &x,
-                                   core::Tensor &result);
+                                   const core::Tensor &x, core::Tensor &result);
 // SiLU (Swish): x * sigmoid(x)。
-AXONO_EXPORT core::Status Silu(const core::Context &ctx,
-                               const core::Tensor &x, core::Tensor &result);
+AXONO_EXPORT core::Status Silu(const core::Context &ctx, const core::Tensor &x,
+                               core::Tensor &result);
 // LayerNorm: 沿最后一维 (x-mean)/sqrt(var+eps)*weight+bias。
 // weight/bias 形状须等于最后一维; 可传空张量表示无仿射。
 AXONO_EXPORT core::Status LayerNorm(const core::Context &ctx,

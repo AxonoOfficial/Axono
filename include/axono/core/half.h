@@ -32,18 +32,17 @@ inline uint16_t Float2Half(float value) {
     man |= 0x800000u;
     const uint32_t shift = static_cast<uint32_t>(14 - e);
     const uint32_t round = (1u << (shift - 1));
-    uint16_t half_man =
-        static_cast<uint16_t>((man >> shift) + ((man & round) != 0 &&
-                                                ((man >> shift) & 1 ||
-                                                 (man & (round << 1)) != 0)
-                                                    ? 1
-                                                    : 0));
+    uint16_t half_man = static_cast<uint16_t>(
+        (man >> shift) +
+        ((man & round) != 0 && ((man >> shift) & 1 || (man & (round << 1)) != 0)
+             ? 1
+             : 0));
     return static_cast<uint16_t>(sign | half_man);
   }
   // 舍入到最近偶数
   const uint32_t round = 0x00001000u;
-  uint32_t m = man + (((man & round) != 0 && (man & (round << 1)) != 0) ? 0x1u
-                                                                        : 0x0u);
+  uint32_t m =
+      man + (((man & round) != 0 && (man & (round << 1)) != 0) ? 0x1u : 0x0u);
   // 舍入进位可能溢出尾数
   uint32_t half = (static_cast<uint32_t>(e) << 10) | (m >> 13);
   return static_cast<uint16_t>(sign | half);

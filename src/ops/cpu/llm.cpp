@@ -1,6 +1,8 @@
 // LLM 相关算子 (CPU): softmax/log_softmax/gelu/silu/layernorm/rmsnorm。
 // 沿最后一维归约, 支持任意前置维; 行内 OpenMP (行数多时按行并行),
 // 仅浮点 dtype。
+#include "axono/ops/cpu/llm.h"
+
 #include <cmath>
 #include <cstddef>
 #include <vector>
@@ -8,7 +10,6 @@
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
-#include "axono/ops/cpu/llm.h"
 
 namespace axono {
 namespace ops {
@@ -31,8 +32,7 @@ core::Status LastDimCheck(const core::Tensor &x, core::Tensor &result,
 }
 
 template <typename T>
-void SoftmaxRows(const T *x, T *out, size_t rows, size_t cols,
-                 bool log_mode) {
+void SoftmaxRows(const T *x, T *out, size_t rows, size_t cols, bool log_mode) {
 #pragma omp parallel for schedule(static)
   for (size_t r = 0; r < rows; ++r) {
     const T *xr = x + r * cols;
@@ -65,8 +65,8 @@ void NormRows(const T *x, T *out, size_t rows, size_t cols, const T *weight,
     if (rms_mode) {
       T ss = T(0);
       for (size_t c = 0; c < cols; ++c) ss += xr[c] * xr[c];
-      const T inv = T(1) / std::sqrt(ss / static_cast<T>(cols) +
-                                     static_cast<T>(eps));
+      const T inv =
+          T(1) / std::sqrt(ss / static_cast<T>(cols) + static_cast<T>(eps));
       for (size_t c = 0; c < cols; ++c) {
         const T normed = xr[c] * inv;
         orr[c] = has_weight ? normed * weight[c] : normed;
@@ -196,14 +196,12 @@ core::Status Silu(const core::Context &ctx, const core::Tensor &x,
     const float *px = x.data<float>();
     float *po = result.data<float>();
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i)
-      po[i] = px[i] / (1.0f + std::exp(-px[i]));
+    for (size_t i = 0; i < n; ++i) po[i] = px[i] / (1.0f + std::exp(-px[i]));
   } else if (x.dtype() == core::DataType::FLOAT64) {
     const double *px = x.data<double>();
     double *po = result.data<double>();
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i)
-      po[i] = px[i] / (1.0 + std::exp(-px[i]));
+    for (size_t i = 0; i < n; ++i) po[i] = px[i] / (1.0 + std::exp(-px[i]));
   } else {
     return core::Status::UNSUPPORTED_TYPE;
   }

@@ -1,11 +1,12 @@
 // 逐元素算子 (CPU): sub/mul/div/neg/abs/exp/log/sqrt/sigmoid/tanh
 // 统一模式: 模板 kernel (小规模单线程, ≥16384 OpenMP) + dtype 分派。
+#include "axono/ops/cpu/elementwise.h"
+
 #include <cmath>
 
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
-#include "axono/ops/cpu/elementwise.h"
 
 namespace axono {
 namespace ops {
@@ -14,7 +15,7 @@ namespace cpu {
 namespace {
 
 core::Status BinaryOpCheck(const core::Tensor &a, const core::Tensor &b,
-                     core::Tensor &result) {
+                           core::Tensor &result) {
   if (a.ndim() != b.ndim() || !a.IsSameShape(b))
     return core::Status::SHAPE_MISMATCH;
   if (a.dtype() != b.dtype()) return core::Status::UNSUPPORTED_TYPE;
@@ -93,7 +94,7 @@ inline void UnaryKernel(const T *x, T *out, size_t n, F &&f) {
 // dtype 分派 (二元: 4 种整型/浮点; 一元: 仅浮点)
 template <typename F>
 inline core::Status BinaryDispatch(const core::Tensor &a, const core::Tensor &b,
-                             core::Tensor &result, F &&fn) {
+                                   core::Tensor &result, F &&fn) {
   if (a.dtype() != b.dtype() || a.dtype() != result.dtype())
     return core::Status::UNSUPPORTED_TYPE;
   const size_t n = a.num_elements();
@@ -117,7 +118,7 @@ inline core::Status BinaryDispatch(const core::Tensor &a, const core::Tensor &b,
 
 template <typename F>
 inline core::Status UnaryDispatch(const core::Tensor &x, core::Tensor &result,
-                            F &&fn) {
+                                  F &&fn) {
   if (x.dtype() != result.dtype()) return core::Status::UNSUPPORTED_TYPE;
   const size_t n = x.num_elements();
   switch (x.dtype()) {
@@ -137,7 +138,7 @@ inline core::Status UnaryDispatch(const core::Tensor &x, core::Tensor &result,
 // ---------- 公开接口 ----------
 
 core::Status Sub(const core::Context &ctx, const core::Tensor &a,
-           const core::Tensor &b, core::Tensor &result) {
+                 const core::Tensor &b, core::Tensor &result) {
   (void)ctx;
   core::Status st = BinaryOpCheck(a, b, result);
   if (st != core::Status::OK) return st;
@@ -148,7 +149,7 @@ core::Status Sub(const core::Context &ctx, const core::Tensor &a,
 }
 
 core::Status Mul(const core::Context &ctx, const core::Tensor &a,
-           const core::Tensor &b, core::Tensor &result) {
+                 const core::Tensor &b, core::Tensor &result) {
   (void)ctx;
   core::Status st = BinaryOpCheck(a, b, result);
   if (st != core::Status::OK) return st;
@@ -159,7 +160,7 @@ core::Status Mul(const core::Context &ctx, const core::Tensor &a,
 }
 
 core::Status Div(const core::Context &ctx, const core::Tensor &a,
-           const core::Tensor &b, core::Tensor &result) {
+                 const core::Tensor &b, core::Tensor &result) {
   (void)ctx;
   core::Status st = BinaryOpCheck(a, b, result);
   if (st != core::Status::OK) return st;
@@ -170,7 +171,7 @@ core::Status Div(const core::Context &ctx, const core::Tensor &a,
 }
 
 core::Status Neg(const core::Context &ctx, const core::Tensor &x,
-           core::Tensor &result) {
+                 core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -180,7 +181,7 @@ core::Status Neg(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Abs(const core::Context &ctx, const core::Tensor &x,
-           core::Tensor &result) {
+                 core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -190,7 +191,7 @@ core::Status Abs(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Exp(const core::Context &ctx, const core::Tensor &x,
-           core::Tensor &result) {
+                 core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -200,7 +201,7 @@ core::Status Exp(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Log(const core::Context &ctx, const core::Tensor &x,
-           core::Tensor &result) {
+                 core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -210,7 +211,7 @@ core::Status Log(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Sqrt(const core::Context &ctx, const core::Tensor &x,
-            core::Tensor &result) {
+                  core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -220,7 +221,7 @@ core::Status Sqrt(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Sigmoid(const core::Context &ctx, const core::Tensor &x,
-               core::Tensor &result) {
+                     core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -233,7 +234,7 @@ core::Status Sigmoid(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Tanh(const core::Context &ctx, const core::Tensor &x,
-            core::Tensor &result) {
+                  core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -243,7 +244,7 @@ core::Status Tanh(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Sin(const core::Context &ctx, const core::Tensor &x,
-           core::Tensor &result) {
+                 core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -253,7 +254,7 @@ core::Status Sin(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Cos(const core::Context &ctx, const core::Tensor &x,
-           core::Tensor &result) {
+                 core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -263,7 +264,7 @@ core::Status Cos(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Rsqrt(const core::Context &ctx, const core::Tensor &x,
-             core::Tensor &result) {
+                   core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -276,7 +277,7 @@ core::Status Rsqrt(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Square(const core::Context &ctx, const core::Tensor &x,
-              core::Tensor &result) {
+                    core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -286,7 +287,7 @@ core::Status Square(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Reciprocal(const core::Context &ctx, const core::Tensor &x,
-                  core::Tensor &result) {
+                        core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -299,7 +300,7 @@ core::Status Reciprocal(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Sign(const core::Context &ctx, const core::Tensor &x,
-            core::Tensor &result) {
+                  core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -312,7 +313,7 @@ core::Status Sign(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Floor(const core::Context &ctx, const core::Tensor &x,
-             core::Tensor &result) {
+                   core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -322,7 +323,7 @@ core::Status Floor(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Ceil(const core::Context &ctx, const core::Tensor &x,
-            core::Tensor &result) {
+                  core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -332,7 +333,7 @@ core::Status Ceil(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Round(const core::Context &ctx, const core::Tensor &x,
-             core::Tensor &result) {
+                   core::Tensor &result) {
   (void)ctx;
   core::Status st = UnaryOpCheck(x, result);
   if (st != core::Status::OK) return st;
@@ -342,7 +343,7 @@ core::Status Round(const core::Context &ctx, const core::Tensor &x,
 }
 
 core::Status Pow(const core::Context &ctx, const core::Tensor &a,
-           const core::Tensor &b, core::Tensor &result) {
+                 const core::Tensor &b, core::Tensor &result) {
   (void)ctx;
   core::Status st = BinaryOpCheck(a, b, result);
   if (st != core::Status::OK) return st;
@@ -353,7 +354,7 @@ core::Status Pow(const core::Context &ctx, const core::Tensor &a,
 }
 
 core::Status Maximum(const core::Context &ctx, const core::Tensor &a,
-               const core::Tensor &b, core::Tensor &result) {
+                     const core::Tensor &b, core::Tensor &result) {
   (void)ctx;
   core::Status st = BinaryOpCheck(a, b, result);
   if (st != core::Status::OK) return st;
@@ -364,7 +365,7 @@ core::Status Maximum(const core::Context &ctx, const core::Tensor &a,
 }
 
 core::Status Minimum(const core::Context &ctx, const core::Tensor &a,
-               const core::Tensor &b, core::Tensor &result) {
+                     const core::Tensor &b, core::Tensor &result) {
   (void)ctx;
   core::Status st = BinaryOpCheck(a, b, result);
   if (st != core::Status::OK) return st;

@@ -1,23 +1,23 @@
+#include "axono/core/tensor.h"
+
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
 #include <stdexcept>  // std::runtime_error
 
-#include "axono/core/tensor.h"
-
 #ifdef AXONO_WITH_CUDA
-#include "axono/ops/cuda/randn.h"
 #include "axono/core/cuda/capture.h"
 #include "axono/core/cuda/detail.h"
 #include "axono/core/cuda/tensor/kernel.h"
 #include "axono/core/cuda/tensor/transpose.h"
+#include "axono/ops/cuda/randn.h"
 #endif
 
-#include "axono/core/half.h"
-#include "axono/ops/cpu/randn.h"
 #include "axono/core/cpu/tensor/kernel.h"
-#include "axono/core/types.h"
 #include "axono/core/cpu/tensor/transpose.h"
+#include "axono/core/half.h"
+#include "axono/core/types.h"
+#include "axono/ops/cpu/randn.h"
 
 namespace {
 // 自定义删除器，用于 shared_ptr
@@ -385,45 +385,44 @@ std::string Tensor::ToString() const {
 }
 
 Tensor Tensor::Transpose(int dim0, int dim1) {
-    const int n_dim = static_cast<int>(this->ndim());
-    dim0 = (dim0 < 0) ? (n_dim + dim0) : dim0;
-    dim1 = (dim1 < 0) ? (n_dim + dim1) : dim1;
+  const int n_dim = static_cast<int>(this->ndim());
+  dim0 = (dim0 < 0) ? (n_dim + dim0) : dim0;
+  dim1 = (dim1 < 0) ? (n_dim + dim1) : dim1;
 
-    if (dim0 < 0 || dim0 >= n_dim || dim1 < 0 || dim1 >= n_dim) {
-        throw std::invalid_argument(
-            "Transpose: invalid dims, ndim=" + std::to_string(n_dim) +
-            ", dim0=" + std::to_string(dim0) + ", dim1=" + std::to_string(dim1)
-        );
-    }
-    if (dim0 == dim1) {
-        return *this;
-    }
+  if (dim0 < 0 || dim0 >= n_dim || dim1 < 0 || dim1 >= n_dim) {
+    throw std::invalid_argument(
+        "Transpose: invalid dims, ndim=" + std::to_string(n_dim) +
+        ", dim0=" + std::to_string(dim0) + ", dim1=" + std::to_string(dim1));
+  }
+  if (dim0 == dim1) {
+    return *this;
+  }
 
-    Shape dst_shape = this->shape_;
-    std::swap(dst_shape[dim0], dst_shape[dim1]);
+  Shape dst_shape = this->shape_;
+  std::swap(dst_shape[dim0], dst_shape[dim1]);
 
-    Tensor dst(this->dtype_, dst_shape, this->device_);
-    dst.InitializeStorage();
+  Tensor dst(this->dtype_, dst_shape, this->device_);
+  dst.InitializeStorage();
 
-    Status status;
-    if (this->is_cuda()) {
+  Status status;
+  if (this->is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-        status = cuda::tensor::TransposeKernel(*this, dst, dim0, dim1);
+    status = cuda::tensor::TransposeKernel(*this, dst, dim0, dim1);
 #else
-        throw std::runtime_error("Transpose: CUDA not compiled, but tensor is on cuda");
+    throw std::runtime_error(
+        "Transpose: CUDA not compiled, but tensor is on cuda");
 #endif
-    } else {
-        status = cpu::tensor::TransposeKernel(*this, dst, dim0, dim1);
-    }
+  } else {
+    status = cpu::tensor::TransposeKernel(*this, dst, dim0, dim1);
+  }
 
-    if (status != Status::OK) {
-        throw std::runtime_error("Transpose failed, status=" + std::to_string(static_cast<int>(status)));
-    }
+  if (status != Status::OK) {
+    throw std::runtime_error("Transpose failed, status=" +
+                             std::to_string(static_cast<int>(status)));
+  }
 
-    return dst;
+  return dst;
 }
-
-
 
 namespace {
 
@@ -446,10 +445,9 @@ Tensor Tensor::CastTo(DataType target) const {
   void *dp = dst.data_.get();
 
 #ifdef AXONO_WITH_CUDA
-  if (is_cuda() && ((dtype_ == DataType::FLOAT16 &&
-                     target == DataType::FLOAT32) ||
-                    (dtype_ == DataType::FLOAT32 &&
-                     target == DataType::FLOAT16))) {
+  if (is_cuda() &&
+      ((dtype_ == DataType::FLOAT16 && target == DataType::FLOAT32) ||
+       (dtype_ == DataType::FLOAT32 && target == DataType::FLOAT16))) {
     Status st = cuda::tensor::DispatchCastF16F32(dst, *this);
     if (st != Status::OK) throw std::runtime_error("CastTo CUDA failed");
     // 不在此同步: cast 提交到当前流, 后续 kernel 同流序依赖;
@@ -479,15 +477,17 @@ Tensor Tensor::CastTo(DataType target) const {
         "CastTo on CUDA: only FLOAT16<->FLOAT32 supported");
   }
   switch (dtype_) {
-    case DataType::INT8: CastLoop<int8_t, float>(sp, dp, n);
+    case DataType::INT8:
+      CastLoop<int8_t, float>(sp, dp, n);
       // 再 cast 到 target? 简化: 只支持转到 fp32
-      if (target != DataType::FLOAT32) throw std::runtime_error("CastTo: unsupported");
+      if (target != DataType::FLOAT32)
+        throw std::runtime_error("CastTo: unsupported");
       break;
-    default: throw std::runtime_error("CastTo: unsupported source dtype");
+    default:
+      throw std::runtime_error("CastTo: unsupported source dtype");
   }
   return dst;
 }
 
 }  // namespace core
 }  // namespace axono
-

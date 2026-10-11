@@ -39,7 +39,7 @@ inline cudaError_t MaybeSync() {
 //   - 非捕获中: 立即 cudaFreeAsync (若是捕获期分配的池指针, 仍发到
 //     其分配流)。
 // 返回 true 表示已延迟挂起, 由 EndGraphCapture 统一释放。
-AXONO_EXPORT bool DeferredFreeAsync(void* ptr, cudaStream_t alloc_stream);
+AXONO_EXPORT bool DeferredFreeAsync(void *ptr, cudaStream_t alloc_stream);
 
 // 内部: 释放所有捕获期间挂起的指针 (EndGraphCapture 调用)。
 AXONO_EXPORT void FlushDeferredFrees();

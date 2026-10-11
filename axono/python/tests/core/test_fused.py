@@ -1,6 +1,5 @@
 """axono.fused 融合算子测试: 数值 vs 手工分解实现。"""
 
-
 import numpy as np
 import pytest
 
@@ -48,9 +47,7 @@ class TestAddRmsNorm:
         r = rng.randn(4, 128).astype(np.float32)
         w = rng.randn(128).astype(np.float32)
         eps = 1e-6
-        yt, out = axono.fused.add_rms_norm(
-            _t(x), _t(r), _t(w), eps
-        )
+        yt, out = axono.fused.add_rms_norm(_t(x), _t(r), _t(w), eps)
         y = x + r
         np.testing.assert_allclose(yt.to_numpy(), y, rtol=1e-5, atol=1e-6)
         ref = y / np.sqrt((y**2).mean(-1, keepdims=True) + eps) * w
@@ -79,6 +76,4 @@ class TestAddRmsNorm:
         w = np.ones(64, dtype=np.float32)
         h1, _ = axono.fused.add_rms_norm(_t(a1), _t(h), _t(w), 1e-6)
         h2, _ = axono.fused.add_rms_norm(_t(a2), h1, _t(w), 1e-6)
-        np.testing.assert_allclose(
-            h2.to_numpy(), a2 + a1 + h, rtol=1e-5, atol=1e-6
-        )
+        np.testing.assert_allclose(h2.to_numpy(), a2 + a1 + h, rtol=1e-5, atol=1e-6)

@@ -16,8 +16,7 @@ namespace cpu {
 core::Status SiluMul(const core::Context &ctx, const core::Tensor &gate,
                      const core::Tensor &up, core::Tensor &result) {
   (void)ctx;
-  if (gate.dtype() != core::DataType::FLOAT32 ||
-      gate.shape() != up.shape())
+  if (gate.dtype() != core::DataType::FLOAT32 || gate.shape() != up.shape())
     return core::Status::SHAPE_MISMATCH;
   core::Status st = result.Resize(gate.shape());
   if (st != core::Status::OK) return st;
@@ -37,8 +36,8 @@ core::Status SiluMul(const core::Context &ctx, const core::Tensor &gate,
 
 core::Status AddRmsNorm(const core::Context &ctx, const core::Tensor &x,
                         const core::Tensor &residual,
-                        const core::Tensor &weight, float eps,
-                        core::Tensor &y, core::Tensor &out) {
+                        const core::Tensor &weight, float eps, core::Tensor &y,
+                        core::Tensor &out) {
   (void)ctx;
   if (x.dtype() != core::DataType::FLOAT32 || x.shape() != residual.shape())
     return core::Status::SHAPE_MISMATCH;

@@ -13,10 +13,10 @@ namespace cpu {
 // y = silu(gate) * up  (SwiGLU 中段, 逐元素, 形状一致)
 AXONO_EXPORT core::Status SiluMul(const core::Context &ctx,
                                   const core::Tensor &gate,
-                                  const core::Tensor &up,
-                                  core::Tensor &result);
+                                  const core::Tensor &up, core::Tensor &result);
 
-// 融合残差 + RMSNorm: y = x + residual; out = y * rsqrt(mean(y²)+eps) * weight。
+// 融合残差 + RMSNorm: y = x + residual; out = y * rsqrt(mean(y²)+eps) *
+// weight。
 AXONO_EXPORT core::Status AddRmsNorm(const core::Context &ctx,
                                      const core::Tensor &x,
                                      const core::Tensor &residual,

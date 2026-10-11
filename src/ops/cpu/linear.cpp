@@ -2,13 +2,14 @@
 // BLAS 可用时 cblas gemm (beta=1, 先把 bias 广播进 result),
 // 否则分块朴素实现; 仅浮点 dtype。
 // 支持任意前置维 batch: x (..., k) -> result (..., out_f)。
+#include "axono/ops/cpu/linear.h"
+
 #include <cstddef>
 #include <vector>
 
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
 #include "axono/core/types.h"
-#include "axono/ops/cpu/linear.h"
 
 #ifdef AXONO_WITH_BLAS
 #include <cblas.h>
@@ -23,8 +24,7 @@ namespace {
 core::Status LinearCheck(const core::Tensor &x, const core::Tensor &weight,
                          const core::Tensor &bias, core::Tensor &result,
                          size_t &rows, size_t &k, size_t &out_f) {
-  if (x.ndim() < 1 || weight.ndim() != 2)
-    return core::Status::INVALID_ARGUMENT;
+  if (x.ndim() < 1 || weight.ndim() != 2) return core::Status::INVALID_ARGUMENT;
   k = x.shape().back();
   out_f = weight.shape()[0];
   rows = x.num_elements() / k;

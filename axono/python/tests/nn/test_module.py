@@ -40,9 +40,9 @@ class TestLinear:
 
     def test_linear_forward_shape(self, device, rng):
         layer = Linear(8, 2, device=device)
-        x = axono.Tensor.from_numpy(
-            rng.standard_normal((5, 8)).astype(np.float32)
-        ).to(device)
+        x = axono.Tensor.from_numpy(rng.standard_normal((5, 8)).astype(np.float32)).to(
+            device
+        )
         y = layer(x)
         assert y.to_numpy().shape == (5, 2)
 
@@ -60,18 +60,18 @@ class TestLinear:
     def test_linear_no_bias(self, device, rng):
         layer = Linear(3, 2, bias=False, device=device)
         assert layer.parameters()["bias"] is None
-        x = axono.Tensor.from_numpy(
-            rng.standard_normal((2, 3)).astype(np.float32)
-        ).to(device)
+        x = axono.Tensor.from_numpy(rng.standard_normal((2, 3)).astype(np.float32)).to(
+            device
+        )
         assert layer(x).to_numpy().shape == (2, 2)
 
 
 class TestModule:
     def test_module_forward_mlp(self, device, rng):
         model = TinyModel(4, 8, 2, device=device)
-        x = axono.Tensor.from_numpy(
-            rng.standard_normal((3, 4)).astype(np.float32)
-        ).to(device)
+        x = axono.Tensor.from_numpy(rng.standard_normal((3, 4)).astype(np.float32)).to(
+            device
+        )
         y = model(x)
         assert y.to_numpy().shape == (3, 2)
         assert np.isfinite(y.to_numpy()).all()

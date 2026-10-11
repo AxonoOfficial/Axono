@@ -3,10 +3,9 @@
 #include <thread>
 #include <vector>
 
-#include "axono/ops/cpu/add.h"
-
 #include "axono/core/macros.h"
 #include "axono/core/tensor.h"
+#include "axono/ops/cpu/add.h"
 
 #ifdef AXONO_WITH_BLAS
 #include <cblas.h>

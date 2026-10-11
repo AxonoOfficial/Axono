@@ -23,8 +23,7 @@ np.random.seed(2027)
 
 
 def _ids_tensor(arr, device):
-    t = Tensor.zeros(tuple(np.asarray(arr).shape), dtype=DataType.INT64,
-                     device=device)
+    t = Tensor.zeros(tuple(np.asarray(arr).shape), dtype=DataType.INT64, device=device)
     t.copy_from_numpy(np.asarray(arr, dtype=np.int64))
     return t
 
@@ -267,8 +266,8 @@ def test_mrope_cos_sin_cpu():
     theta = 5e6
     inv = 1.0 / (theta ** (np.arange(0, d_head, 2, dtype=np.float32) / d_head))
     cos_t, sin_t = axono.mrope_cos_sin(
-        _ids_tensor(pos3, "cpu"),
-        Tensor.from_numpy(inv.astype(np.float32)), 20, 20)
+        _ids_tensor(pos3, "cpu"), Tensor.from_numpy(inv.astype(np.float32)), 20, 20
+    )
     rc, rs = _ref_mrope_cos_sin(pos3, theta, d_head, 20, 20)
     np.testing.assert_allclose(cos_t.to_numpy(), rc, rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(sin_t.to_numpy(), rs, rtol=1e-5, atol=1e-6)
@@ -282,7 +281,10 @@ def test_mrope_cos_sin_cuda(cuda_env):
     inv = 1.0 / (theta ** (np.arange(0, d_head, 2, dtype=np.float32) / d_head))
     cos_t, sin_t = axono.mrope_cos_sin(
         _ids_tensor(pos3, "cuda:0"),
-        Tensor.from_numpy(inv.astype(np.float32)).to("cuda:0"), 20, 20)
+        Tensor.from_numpy(inv.astype(np.float32)).to("cuda:0"),
+        20,
+        20,
+    )
     rc, rs = _ref_mrope_cos_sin(pos3, theta, d_head, 20, 20)
     np.testing.assert_allclose(cos_t.to_numpy(), rc, rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(sin_t.to_numpy(), rs, rtol=1e-5, atol=1e-6)
@@ -295,4 +297,3 @@ def test_to_same_device_no_copy(cuda_env):
     assert y is x
     z = x.to("cpu")
     assert z is not x
-

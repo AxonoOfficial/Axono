@@ -107,13 +107,15 @@ class CompiledModel:
                 static_kwargs[k] = v
 
         g = CUDAGraph()
-        g.capture(lambda: self._model(
-            *[s.tensor if isinstance(s, _TensorArg) else s for s in static_args],
-            **{
-                k: (s.tensor if isinstance(s, _TensorArg) else s)
-                for k, s in static_kwargs.items()
-            },
-        ))
+        g.capture(
+            lambda: self._model(
+                *[s.tensor if isinstance(s, _TensorArg) else s for s in static_args],
+                **{
+                    k: (s.tensor if isinstance(s, _TensorArg) else s)
+                    for k, s in static_kwargs.items()
+                },
+            )
+        )
         return g, static_args, static_kwargs
 
     def __call__(self, *args, **kwargs):

@@ -2,7 +2,6 @@
 // 取代 dev 分支的 pybind11_module.cpp + include/axono/pybind/*。
 // 模块名保持 libaxono, Python 端 from libaxono import ... 不变。
 
-#include <mutex>
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
@@ -10,6 +9,7 @@
 
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <vector>
 
@@ -33,9 +33,9 @@
 #include "axono/ops/cpu/fused.h"
 #include "axono/ops/cpu/linear.h"
 #include "axono/ops/cpu/llm.h"
-#include "axono/ops/cpu/sequence.h"
 #include "axono/ops/cpu/matmul.h"
 #include "axono/ops/cpu/relu.h"
+#include "axono/ops/cpu/sequence.h"
 #ifdef AXONO_WITH_CUDA
 #include "axono/ops/cuda/elementwise.h"
 #include "axono/ops/cuda/fused.h"
@@ -64,8 +64,8 @@ nb::ndarray<nb::numpy, T, nb::c_contig> tensor_to_ndarray(
 #ifdef AXONO_WITH_CUDA
     // CUDA: 拷回主机内存 (独立副本)
     auto host = std::make_unique<T[]>(n);
-    auto status = core::cuda::tensor::TensorReadKernel(self.data<T>(),
-                                                       host.get(), n);
+    auto status =
+        core::cuda::tensor::TensorReadKernel(self.data<T>(), host.get(), n);
     if (status != core::Status::OK) {
       throw std::runtime_error("CUDA 读取数据失败, 状态代码: " +
                                std::to_string(static_cast<int>(status)));
@@ -73,9 +73,8 @@ nb::ndarray<nb::numpy, T, nb::c_contig> tensor_to_ndarray(
     T *data = host.release();
     // capsule 管理临时主机内存; keep_alive 引用 Tensor 对象本身,
     // 确保 ndarray 存活期间底层 shape 拷贝与 CUDA 上下文有效
-    nb::capsule free_when_done(data, [](void *ptr) noexcept {
-      delete[] static_cast<T *>(ptr);
-    });
+    nb::capsule free_when_done(
+        data, [](void *ptr) noexcept { delete[] static_cast<T *>(ptr); });
     return nb::ndarray<nb::numpy, T, nb::c_contig>(
         /*data=*/data, /*ndim=*/shp.size(), /*shape=*/shp.data(),
         /*owner=*/free_when_done);
@@ -207,10 +206,9 @@ NB_MODULE(libaxono, m) {
   nb::class_<core::Tensor>(m, "Tensor")
       .def(nb::init<>())
       .def(nb::init<core::DataType>())
-      .def(nb::init<core::DataType, const core::Shape &>(),
-           nb::arg("dtype"), nb::arg("shape"))
-      .def(nb::init<core::DataType, const core::Shape &,
-                    const std::string &>(),
+      .def(nb::init<core::DataType, const core::Shape &>(), nb::arg("dtype"),
+           nb::arg("shape"))
+      .def(nb::init<core::DataType, const core::Shape &, const std::string &>(),
            nb::arg("dtype"), nb::arg("shape"), nb::arg("device"))
       .def_static("randn", &core::Tensor::randn, nb::arg("shape"),
                   nb::arg("dtype") = core::DataType::FLOAT32,
@@ -224,16 +222,15 @@ NB_MODULE(libaxono, m) {
             for (size_t i = 0; i < arr.ndim(); ++i)
               shape.push_back(static_cast<size_t>(arr.shape(i)));
             if (arr.dtype() == nb::dtype<float>()) {
-              return core::Tensor::FromBorrowed(core::DataType::FLOAT32,
-                                                shape, arr.data());
+              return core::Tensor::FromBorrowed(core::DataType::FLOAT32, shape,
+                                                arr.data());
             }
             if (arr.dtype() == nb::dtype<uint16_t>()) {
               // fp16 以 uint16 位模式零拷贝借用
-              return core::Tensor::FromBorrowed(core::DataType::FLOAT16,
-                                                shape, arr.data());
+              return core::Tensor::FromBorrowed(core::DataType::FLOAT16, shape,
+                                                arr.data());
             }
-            throw std::runtime_error(
-                "from_borrowed: 仅支持 FLOAT32/FLOAT16");
+            throw std::runtime_error("from_borrowed: 仅支持 FLOAT32/FLOAT16");
           },
           nb::arg("array"), nb::keep_alive<0, 1>(),
           nb::sig("def from_borrowed(array) -> Tensor"))
@@ -251,82 +248,100 @@ NB_MODULE(libaxono, m) {
           },
           nb::arg("array"), nb::keep_alive<0, 1>(),
           nb::sig("def from_borrowed_i64(array) -> Tensor"))
-      .def("to", [](const core::Tensor &self, const std::string &device) {
-             return self.to(device);
-           }, nb::arg("device"))
-      .def("copy_from",
-           [](core::Tensor &self, const core::Tensor &src) {
-             core::Status st = self.CopyFrom(src);
-             if (st != core::Status::OK)
-               throw std::runtime_error("copy_from 失败, 错误代码: " +
-                                        std::to_string(static_cast<int>(st)));
-           }, nb::arg("src"))
+      .def(
+          "to",
+          [](const core::Tensor &self, const std::string &device) {
+            return self.to(device);
+          },
+          nb::arg("device"))
+      .def(
+          "copy_from",
+          [](core::Tensor &self, const core::Tensor &src) {
+            core::Status st = self.CopyFrom(src);
+            if (st != core::Status::OK)
+              throw std::runtime_error("copy_from 失败, 错误代码: " +
+                                       std::to_string(static_cast<int>(st)));
+          },
+          nb::arg("src"))
       .def("to_", &core::Tensor::to_, nb::arg("device"))
-      .def("transpose", &core::Tensor::Transpose,
-           nb::arg("dim0") = -2, nb::arg("dim1") = -1)
+      .def("transpose", &core::Tensor::Transpose, nb::arg("dim0") = -2,
+           nb::arg("dim1") = -1)
       .def("reshape", &core::Tensor::Reshape)
       .def("resize", &core::Tensor::Resize)
       .def("fill_zero", &core::Tensor::FillZero)
-      .def("fill", [](core::Tensor &self, nb::object value) {
-             // 按 dtype 分派标量填充
-             switch (self.dtype()) {
-               case core::DataType::INT8: {
-                 int8_t v = nb::cast<int8_t>(value);
-                 return fill_tensor(self, &v, sizeof(v));
-               }
-               case core::DataType::INT16: {
-                 int16_t v = nb::cast<int16_t>(value);
-                 return fill_tensor(self, &v, sizeof(v));
-               }
-               case core::DataType::INT32: {
-                 int32_t v = nb::cast<int32_t>(value);
-                 return fill_tensor(self, &v, sizeof(v));
-               }
-               case core::DataType::INT64: {
-                 int64_t v = nb::cast<int64_t>(value);
-                 return fill_tensor(self, &v, sizeof(v));
-               }
-               case core::DataType::FLOAT32: {
-                 float v = nb::cast<float>(value);
-                 return fill_tensor(self, &v, sizeof(v));
-               }
-               case core::DataType::FLOAT64: {
-                 double v = nb::cast<double>(value);
-                 return fill_tensor(self, &v, sizeof(v));
-               }
-               case core::DataType::BOOLEAN: {
-                 bool v = nb::cast<bool>(value);
-                 return fill_tensor(self, &v, sizeof(v));
-               }
-               default:
-                 return core::Status::UNSUPPORTED_TYPE;
-             }
-           }, nb::arg("value"))
+      .def(
+          "fill",
+          [](core::Tensor &self, nb::object value) {
+            // 按 dtype 分派标量填充
+            switch (self.dtype()) {
+              case core::DataType::INT8: {
+                int8_t v = nb::cast<int8_t>(value);
+                return fill_tensor(self, &v, sizeof(v));
+              }
+              case core::DataType::INT16: {
+                int16_t v = nb::cast<int16_t>(value);
+                return fill_tensor(self, &v, sizeof(v));
+              }
+              case core::DataType::INT32: {
+                int32_t v = nb::cast<int32_t>(value);
+                return fill_tensor(self, &v, sizeof(v));
+              }
+              case core::DataType::INT64: {
+                int64_t v = nb::cast<int64_t>(value);
+                return fill_tensor(self, &v, sizeof(v));
+              }
+              case core::DataType::FLOAT32: {
+                float v = nb::cast<float>(value);
+                return fill_tensor(self, &v, sizeof(v));
+              }
+              case core::DataType::FLOAT64: {
+                double v = nb::cast<double>(value);
+                return fill_tensor(self, &v, sizeof(v));
+              }
+              case core::DataType::BOOLEAN: {
+                bool v = nb::cast<bool>(value);
+                return fill_tensor(self, &v, sizeof(v));
+              }
+              default:
+                return core::Status::UNSUPPORTED_TYPE;
+            }
+          },
+          nb::arg("value"))
       .def("is_same_shape", &core::Tensor::IsSameShape)
       .def("_orig_cast_to", &core::Tensor::CastTo)
       .def_prop_ro("is_cuda", &core::Tensor::is_cuda)
       .def_prop_ro("device", &core::Tensor::device)
       .def_prop_ro("dtype", &core::Tensor::dtype)
-      .def_prop_ro("shape", [](const core::Tensor &self) {
-             const auto &s = self.shape();
-             return std::vector<size_t>(s.begin(), s.end());
-           })
+      .def_prop_ro("shape",
+                   [](const core::Tensor &self) {
+                     const auto &s = self.shape();
+                     return std::vector<size_t>(s.begin(), s.end());
+                   })
       .def_prop_ro("ndim", &core::Tensor::ndim)
       .def_prop_ro("num_elements", &core::Tensor::num_elements)
       .def_prop_ro("num_bytes", &core::Tensor::num_bytes)
-      .def("data_int8", [](nb::object &self) {
-             return tensor_to_ndarray<int8_t>(nb::cast<core::Tensor &>(self), self);
+      .def("data_int8",
+           [](nb::object &self) {
+             return tensor_to_ndarray<int8_t>(nb::cast<core::Tensor &>(self),
+                                              self);
            })
-      .def("data_int16", [](nb::object &self) {
-             return tensor_to_ndarray<int16_t>(nb::cast<core::Tensor &>(self), self);
+      .def("data_int16",
+           [](nb::object &self) {
+             return tensor_to_ndarray<int16_t>(nb::cast<core::Tensor &>(self),
+                                               self);
            })
-      .def("data_int32", [](nb::object &self) {
-             return tensor_to_ndarray<int32_t>(nb::cast<core::Tensor &>(self), self);
+      .def("data_int32",
+           [](nb::object &self) {
+             return tensor_to_ndarray<int32_t>(nb::cast<core::Tensor &>(self),
+                                               self);
            })
-      .def("data_int64", [](nb::object &self) {
-             return tensor_to_ndarray<int64_t>(nb::cast<core::Tensor &>(self), self);
+      .def("data_int64",
+           [](nb::object &self) {
+             return tensor_to_ndarray<int64_t>(nb::cast<core::Tensor &>(self),
+                                               self);
            })
-      .def("data_float16", [](nb::object &self) {
+      .def("data_float16",
+           [](nb::object &self) {
              // fp16 以 uint16 位模式暴露, numpy .view(np.float16) 零拷贝重解释
              auto &t = nb::cast<core::Tensor &>(self);
              if (t.dtype() != core::DataType::FLOAT16) {
@@ -336,23 +351,30 @@ NB_MODULE(libaxono, m) {
              auto arr = tensor_to_ndarray<int16_t>(t, self);
              return arr;
            })
-      .def("data_float32", [](nb::object &self) {
-             return tensor_to_ndarray<float>(nb::cast<core::Tensor &>(self), self);
+      .def("data_float32",
+           [](nb::object &self) {
+             return tensor_to_ndarray<float>(nb::cast<core::Tensor &>(self),
+                                             self);
            })
-      .def("data_float64", [](nb::object &self) {
-             return tensor_to_ndarray<double>(nb::cast<core::Tensor &>(self), self);
+      .def("data_float64",
+           [](nb::object &self) {
+             return tensor_to_ndarray<double>(nb::cast<core::Tensor &>(self),
+                                              self);
            })
-      .def("data_bool", [](nb::object &self) {
-             return tensor_to_ndarray<bool>(nb::cast<core::Tensor &>(self), self);
+      .def("data_bool",
+           [](nb::object &self) {
+             return tensor_to_ndarray<bool>(nb::cast<core::Tensor &>(self),
+                                            self);
            })
       .def("__repr__", &core::Tensor::ToString)
       .def("__str__", &core::Tensor::ToString)
-      .def("__copy__", [](const core::Tensor &self) {
+      .def("__copy__",
+           [](const core::Tensor &self) {
              return core::Tensor(self.dtype(), self.shape(), self.device());
            })
       .def("__deepcopy__", [](const core::Tensor &self, nb::dict) {
-             return self.to(self.device());
-           });
+        return self.to(self.device());
+      });
 
   // ---- Module (nn 权重容器) ----
   nb::class_<core::Module>(m, "Module")
@@ -361,216 +383,236 @@ NB_MODULE(libaxono, m) {
            nb::arg("weight"))
       .def("get_weight", &core::Module::get_weight, nb::arg("name"),
            nb::rv_policy::reference_internal)
-      .def("weights", [](core::Module &self) {
-             std::vector<std::string> names;
-             for (const auto &kv : self.weights()) names.push_back(kv.first);
-             return names;
-           }, nb::rv_policy::reference_internal);
+      .def(
+          "weights",
+          [](core::Module &self) {
+            std::vector<std::string> names;
+            for (const auto &kv : self.weights()) names.push_back(kv.first);
+            return names;
+          },
+          nb::rv_policy::reference_internal);
 
   // ---- 算子 (自由函数) ----
 #ifdef AXONO_WITH_CUDA
   // 缓存池诊断 (显存占用排查)
-  m.def("cached_bytes",
-        []() { return axono::core::cuda::GetCachedBytes(); });
-  m.def("set_cache_budget", [](size_t bytes) {
-    axono::core::cuda::SetCacheBudget(bytes);
-  });
+  m.def("cached_bytes", []() { return axono::core::cuda::GetCachedBytes(); });
+  m.def("set_cache_budget",
+        [](size_t bytes) { axono::core::cuda::SetCacheBudget(bytes); });
 #endif
-  m.def("add", [](const core::Tensor &a, const core::Tensor &b) {
-    if (check_device_match(a, b) != core::Status::OK)
-      throw std::runtime_error("add: 输入张量不在同一设备上");
-    if (a.dtype() != b.dtype())
-      throw std::runtime_error("add: 输入张量数据类型不一致");
-    core::Tensor result(a.dtype(), a.shape(), a.device());
-    core::Status st;
-    if (a.is_cuda()) {
+  m.def(
+      "add",
+      [](const core::Tensor &a, const core::Tensor &b) {
+        if (check_device_match(a, b) != core::Status::OK)
+          throw std::runtime_error("add: 输入张量不在同一设备上");
+        if (a.dtype() != b.dtype())
+          throw std::runtime_error("add: 输入张量数据类型不一致");
+        core::Tensor result(a.dtype(), a.shape(), a.device());
+        core::Status st;
+        if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-      st = ops::cuda::Add(core::Context(), a, b, result);
+          st = ops::cuda::Add(core::Context(), a, b, result);
 #else
-      st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-    } else {
-      st = ops::cpu::Add(core::Context(), a, b, result);
-    }
-    if (st != core::Status::OK)
-      throw std::runtime_error("add 失败, 错误代码: " +
-                               std::to_string(static_cast<int>(st)));
-    return result;
-  }, nb::arg("a"), nb::arg("b"));
+        } else {
+          st = ops::cpu::Add(core::Context(), a, b, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("add 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("a"), nb::arg("b"));
 
-  m.def("matmul", [](const core::Tensor &a, const core::Tensor &b) {
-    if (check_device_match(a, b) != core::Status::OK)
-      throw std::runtime_error("matmul: 输入张量不在同一设备上");
-    if (a.dtype() != b.dtype())
-      throw std::runtime_error("matmul: 输入张量数据类型不一致");
-    if (a.ndim() != 2 || b.ndim() != 2)
-      throw std::runtime_error("matmul: 目前仅支持二维矩阵");
-    if (a.shape()[1] != b.shape()[0])
-      throw std::runtime_error("matmul: 形状不匹配");
-    core::Tensor result(a.dtype(),
-                        std::vector<size_t>{a.shape()[0], b.shape()[1]},
-                        a.device());
-    core::Status st;
-    if (a.is_cuda()) {
+  m.def(
+      "matmul",
+      [](const core::Tensor &a, const core::Tensor &b) {
+        if (check_device_match(a, b) != core::Status::OK)
+          throw std::runtime_error("matmul: 输入张量不在同一设备上");
+        if (a.dtype() != b.dtype())
+          throw std::runtime_error("matmul: 输入张量数据类型不一致");
+        if (a.ndim() != 2 || b.ndim() != 2)
+          throw std::runtime_error("matmul: 目前仅支持二维矩阵");
+        if (a.shape()[1] != b.shape()[0])
+          throw std::runtime_error("matmul: 形状不匹配");
+        core::Tensor result(a.dtype(),
+                            std::vector<size_t>{a.shape()[0], b.shape()[1]},
+                            a.device());
+        core::Status st;
+        if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-      st = ops::cuda::MatMul(core::Context(), a, b, result);
+          st = ops::cuda::MatMul(core::Context(), a, b, result);
 #else
-      st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-    } else {
-      st = ops::cpu::MatMul(core::Context(), a, b, result);
-    }
-    if (st != core::Status::OK)
-      throw std::runtime_error("matmul 失败, 错误代码: " +
-                               std::to_string(static_cast<int>(st)));
-    return result;
-  }, nb::arg("a"), nb::arg("b"));
+        } else {
+          st = ops::cpu::MatMul(core::Context(), a, b, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("matmul 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("a"), nb::arg("b"));
 
   // add_into: result = a + b, result 可与 a/b 同存储 (真 inplace)。
-  m.def("add_into",
-        [](const core::Tensor &a, const core::Tensor &b, core::Tensor &result) {
-          if (check_device_match(a, b) != core::Status::OK ||
-              check_device_match(a, result) != core::Status::OK)
-            throw std::runtime_error("add_into: 输入张量不在同一设备上");
-          if (a.dtype() != b.dtype() || a.dtype() != result.dtype())
-            throw std::runtime_error("add_into: 数据类型不一致");
-          if (!a.IsSameShape(result) || !b.IsSameShape(result))
-            throw std::runtime_error("add_into: 形状不匹配");
-          core::Status st;
-          if (a.is_cuda()) {
+  m.def(
+      "add_into",
+      [](const core::Tensor &a, const core::Tensor &b, core::Tensor &result) {
+        if (check_device_match(a, b) != core::Status::OK ||
+            check_device_match(a, result) != core::Status::OK)
+          throw std::runtime_error("add_into: 输入张量不在同一设备上");
+        if (a.dtype() != b.dtype() || a.dtype() != result.dtype())
+          throw std::runtime_error("add_into: 数据类型不一致");
+        if (!a.IsSameShape(result) || !b.IsSameShape(result))
+          throw std::runtime_error("add_into: 形状不匹配");
+        core::Status st;
+        if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::Add(core::Context(), a, b, result);
+          st = ops::cuda::Add(core::Context(), a, b, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::Add(core::Context(), a, b, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("add_into 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-        },
-        nb::arg("a"), nb::arg("b"), nb::arg("out"));
+        } else {
+          st = ops::cpu::Add(core::Context(), a, b, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("add_into 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+      },
+      nb::arg("a"), nb::arg("b"), nb::arg("out"));
 
   // add_: a += b (真原地, 零分配)
-  m.def("add_", [](core::Tensor &a, const core::Tensor &b) {
-    if (check_device_match(a, b) != core::Status::OK)
-      throw std::runtime_error("add_: 输入张量不在同一设备上");
-    if (a.dtype() != b.dtype())
-      throw std::runtime_error("add_: 数据类型不一致");
-    if (!a.IsSameShape(b))
-      throw std::runtime_error("add_: 形状不匹配");
-    core::Status st;
-    if (a.is_cuda()) {
+  m.def(
+      "add_",
+      [](core::Tensor &a, const core::Tensor &b) {
+        if (check_device_match(a, b) != core::Status::OK)
+          throw std::runtime_error("add_: 输入张量不在同一设备上");
+        if (a.dtype() != b.dtype())
+          throw std::runtime_error("add_: 数据类型不一致");
+        if (!a.IsSameShape(b)) throw std::runtime_error("add_: 形状不匹配");
+        core::Status st;
+        if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-      st = ops::cuda::Add(core::Context(), a, b, a);
+          st = ops::cuda::Add(core::Context(), a, b, a);
 #else
-      st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-    } else {
-      st = ops::cpu::Add(core::Context(), a, b, a);
-    }
-    if (st != core::Status::OK)
-      throw std::runtime_error("add_ 失败, 错误代码: " +
-                               std::to_string(static_cast<int>(st)));
-  }, nb::arg("a"), nb::arg("b"), nb::sig("def add_(a, b) -> None"));
+        } else {
+          st = ops::cpu::Add(core::Context(), a, b, a);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("add_ 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+      },
+      nb::arg("a"), nb::arg("b"), nb::sig("def add_(a, b) -> None"));
 
   // matmul_into: result = a @ b, out 参数版
-  m.def("matmul_into",
-        [](const core::Tensor &a, const core::Tensor &b, core::Tensor &result) {
-          if (check_device_match(a, b) != core::Status::OK ||
-              check_device_match(a, result) != core::Status::OK)
-            throw std::runtime_error("matmul_into: 输入张量不在同一设备上");
-          if (a.dtype() != b.dtype() || a.dtype() != result.dtype())
-            throw std::runtime_error("matmul_into: 数据类型不一致");
-          if (a.ndim() != 2 || b.ndim() != 2)
-            throw std::runtime_error("matmul_into: 目前仅支持二维矩阵");
-          if (a.shape()[1] != b.shape()[0])
-            throw std::runtime_error("matmul_into: 形状不匹配");
-          if (result.shape()[0] != a.shape()[0] ||
-              result.shape()[1] != b.shape()[1])
-            throw std::runtime_error("matmul_into: out 形状不匹配");
-          core::Status st;
-          if (a.is_cuda()) {
+  m.def(
+      "matmul_into",
+      [](const core::Tensor &a, const core::Tensor &b, core::Tensor &result) {
+        if (check_device_match(a, b) != core::Status::OK ||
+            check_device_match(a, result) != core::Status::OK)
+          throw std::runtime_error("matmul_into: 输入张量不在同一设备上");
+        if (a.dtype() != b.dtype() || a.dtype() != result.dtype())
+          throw std::runtime_error("matmul_into: 数据类型不一致");
+        if (a.ndim() != 2 || b.ndim() != 2)
+          throw std::runtime_error("matmul_into: 目前仅支持二维矩阵");
+        if (a.shape()[1] != b.shape()[0])
+          throw std::runtime_error("matmul_into: 形状不匹配");
+        if (result.shape()[0] != a.shape()[0] ||
+            result.shape()[1] != b.shape()[1])
+          throw std::runtime_error("matmul_into: out 形状不匹配");
+        core::Status st;
+        if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::MatMul(core::Context(), a, b, result);
+          st = ops::cuda::MatMul(core::Context(), a, b, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::MatMul(core::Context(), a, b, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("matmul_into 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-        },
-        nb::arg("a"), nb::arg("b"), nb::arg("out"));
+        } else {
+          st = ops::cpu::MatMul(core::Context(), a, b, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("matmul_into 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+      },
+      nb::arg("a"), nb::arg("b"), nb::arg("out"));
 
   // matmul_: a = a @ b (cuBLAS 无法别名读写, 经一次临时后 swap,
   // 语义等同 torch 的 out-place + 赋值, 但不新增 Python 对象)
-  m.def("matmul_", [](core::Tensor &a, const core::Tensor &b) {
-    if (check_device_match(a, b) != core::Status::OK)
-      throw std::runtime_error("matmul_: 输入张量不在同一设备上");
-    if (a.dtype() != b.dtype())
-      throw std::runtime_error("matmul_: 数据类型不一致");
-    if (a.ndim() != 2 || b.ndim() != 2)
-      throw std::runtime_error("matmul_: 目前仅支持二维矩阵");
-    if (a.shape()[1] != b.shape()[0])
-      throw std::runtime_error("matmul_: 形状不匹配");
-    core::Tensor result(a.dtype(),
-                        std::vector<size_t>{a.shape()[0], b.shape()[1]},
-                        a.device());
-    core::Status st;
-    if (a.is_cuda()) {
+  m.def(
+      "matmul_",
+      [](core::Tensor &a, const core::Tensor &b) {
+        if (check_device_match(a, b) != core::Status::OK)
+          throw std::runtime_error("matmul_: 输入张量不在同一设备上");
+        if (a.dtype() != b.dtype())
+          throw std::runtime_error("matmul_: 数据类型不一致");
+        if (a.ndim() != 2 || b.ndim() != 2)
+          throw std::runtime_error("matmul_: 目前仅支持二维矩阵");
+        if (a.shape()[1] != b.shape()[0])
+          throw std::runtime_error("matmul_: 形状不匹配");
+        core::Tensor result(a.dtype(),
+                            std::vector<size_t>{a.shape()[0], b.shape()[1]},
+                            a.device());
+        core::Status st;
+        if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-      st = ops::cuda::MatMul(core::Context(), a, b, result);
+          st = ops::cuda::MatMul(core::Context(), a, b, result);
 #else
-      st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-    } else {
-      st = ops::cpu::MatMul(core::Context(), a, b, result);
-    }
-    if (st != core::Status::OK)
-      throw std::runtime_error("matmul_ 失败, 错误代码: " +
-                               std::to_string(static_cast<int>(st)));
-    a = std::move(result);
-  }, nb::arg("a"), nb::arg("b"), nb::sig("def matmul_(a, b) -> None"));
+        } else {
+          st = ops::cpu::MatMul(core::Context(), a, b, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("matmul_ 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        a = std::move(result);
+      },
+      nb::arg("a"), nb::arg("b"), nb::sig("def matmul_(a, b) -> None"));
 
   // relu: 非原地, 返回新张量 (输入保证不变)
-  m.def("relu", [](const core::Tensor &input) {
-    core::Tensor result(input.dtype(), input.shape(), input.device());
-    core::Status st;
-    if (input.is_cuda()) {
+  m.def(
+      "relu",
+      [](const core::Tensor &input) {
+        core::Tensor result(input.dtype(), input.shape(), input.device());
+        core::Status st;
+        if (input.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-      st = ops::cuda::Relu(core::Context(), input, result);
+          st = ops::cuda::Relu(core::Context(), input, result);
 #else
-      st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-    } else {
-      st = ops::cpu::Relu(core::Context(), input, result);
-    }
-    if (st != core::Status::OK)
-      throw std::runtime_error("relu 失败, 错误代码: " +
-                               std::to_string(static_cast<int>(st)));
-    return result;
-  }, nb::arg("x"));
+        } else {
+          st = ops::cpu::Relu(core::Context(), input, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("relu 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("x"));
 
   // relu_: 真原地 (直接在输入存储上执行 kernel, 无任何拷贝/临时)
-  m.def("relu_", [](core::Tensor &input) {
-    core::Status st;
-    if (input.is_cuda()) {
+  m.def(
+      "relu_",
+      [](core::Tensor &input) {
+        core::Status st;
+        if (input.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-      st = ops::cuda::ReluInplace(core::Context(), input);
+          st = ops::cuda::ReluInplace(core::Context(), input);
 #else
-      st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-    } else {
-      st = ops::cpu::ReluInplace(core::Context(), input);
-    }
-    if (st != core::Status::OK)
-      throw std::runtime_error("relu_ 失败, 错误代码: " +
-                               std::to_string(static_cast<int>(st)));
-  }, nb::arg("x"), nb::sig("def relu_(x) -> None"));
+        } else {
+          st = ops::cpu::ReluInplace(core::Context(), input);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("relu_ 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+      },
+      nb::arg("x"), nb::sig("def relu_(x) -> None"));
 
   // ---- 逐元素算子 (sub/mul/div/neg/abs/exp/log/sqrt/sigmoid/tanh) ----
   // 统一 helper: 设备分派 (CUDA 优先, 回退 CPU)
@@ -614,60 +656,91 @@ NB_MODULE(libaxono, m) {
     return result;
   };
 
-  m.def("sub", [&](const core::Tensor &a, const core::Tensor &b) {
-         return ew_binary(a, b, "sub");
-       }, nb::arg("a"), nb::arg("b"));
-  m.def("mul", [&](const core::Tensor &a, const core::Tensor &b) {
-         return ew_binary(a, b, "mul");
-       }, nb::arg("a"), nb::arg("b"));
-  m.def("div", [&](const core::Tensor &a, const core::Tensor &b) {
-         return ew_binary(a, b, "div");
-       }, nb::arg("a"), nb::arg("b"));
-  m.def("neg", [&](const core::Tensor &x) { return ew_unary(x, "neg"); },
-       nb::arg("x"));
-  m.def("abs", [&](const core::Tensor &x) { return ew_unary(x, "abs"); },
-       nb::arg("x"));
-  m.def("exp", [&](const core::Tensor &x) { return ew_unary(x, "exp"); },
-       nb::arg("x"));
-  m.def("log", [&](const core::Tensor &x) { return ew_unary(x, "log"); },
-       nb::arg("x"));
-  m.def("sqrt", [&](const core::Tensor &x) { return ew_unary(x, "sqrt"); },
-       nb::arg("x"));
-  m.def("sigmoid", [&](const core::Tensor &x) {
-         return ew_unary(x, "sigmoid");
-       }, nb::arg("x"));
-  m.def("tanh", [&](const core::Tensor &x) {
-         return ew_unary(x, "tanh");
-       }, nb::arg("x"));
-  m.def("sin", [&](const core::Tensor &x) { return ew_unary(x, "sin"); },
-       nb::arg("x"));
-  m.def("cos", [&](const core::Tensor &x) { return ew_unary(x, "cos"); },
-       nb::arg("x"));
-  m.def("rsqrt", [&](const core::Tensor &x) { return ew_unary(x, "rsqrt"); },
-       nb::arg("x"));
-  m.def("square", [&](const core::Tensor &x) {
-         return ew_unary(x, "square");
-       }, nb::arg("x"));
-  m.def("reciprocal", [&](const core::Tensor &x) {
-         return ew_unary(x, "reciprocal");
-       }, nb::arg("x"));
-  m.def("sign", [&](const core::Tensor &x) { return ew_unary(x, "sign"); },
-       nb::arg("x"));
-  m.def("floor", [&](const core::Tensor &x) { return ew_unary(x, "floor"); },
-       nb::arg("x"));
-  m.def("ceil", [&](const core::Tensor &x) { return ew_unary(x, "ceil"); },
-       nb::arg("x"));
-  m.def("round", [&](const core::Tensor &x) { return ew_unary(x, "round"); },
-       nb::arg("x"));
-  m.def("pow", [&](const core::Tensor &a, const core::Tensor &b) {
-         return ew_binary(a, b, "pow");
-       }, nb::arg("a"), nb::arg("b"));
-  m.def("maximum", [&](const core::Tensor &a, const core::Tensor &b) {
-         return ew_binary(a, b, "maximum");
-       }, nb::arg("a"), nb::arg("b"));
-  m.def("minimum", [&](const core::Tensor &a, const core::Tensor &b) {
-         return ew_binary(a, b, "minimum");
-       }, nb::arg("a"), nb::arg("b"));
+  m.def(
+      "sub",
+      [&](const core::Tensor &a, const core::Tensor &b) {
+        return ew_binary(a, b, "sub");
+      },
+      nb::arg("a"), nb::arg("b"));
+  m.def(
+      "mul",
+      [&](const core::Tensor &a, const core::Tensor &b) {
+        return ew_binary(a, b, "mul");
+      },
+      nb::arg("a"), nb::arg("b"));
+  m.def(
+      "div",
+      [&](const core::Tensor &a, const core::Tensor &b) {
+        return ew_binary(a, b, "div");
+      },
+      nb::arg("a"), nb::arg("b"));
+  m.def(
+      "neg", [&](const core::Tensor &x) { return ew_unary(x, "neg"); },
+      nb::arg("x"));
+  m.def(
+      "abs", [&](const core::Tensor &x) { return ew_unary(x, "abs"); },
+      nb::arg("x"));
+  m.def(
+      "exp", [&](const core::Tensor &x) { return ew_unary(x, "exp"); },
+      nb::arg("x"));
+  m.def(
+      "log", [&](const core::Tensor &x) { return ew_unary(x, "log"); },
+      nb::arg("x"));
+  m.def(
+      "sqrt", [&](const core::Tensor &x) { return ew_unary(x, "sqrt"); },
+      nb::arg("x"));
+  m.def(
+      "sigmoid", [&](const core::Tensor &x) { return ew_unary(x, "sigmoid"); },
+      nb::arg("x"));
+  m.def(
+      "tanh", [&](const core::Tensor &x) { return ew_unary(x, "tanh"); },
+      nb::arg("x"));
+  m.def(
+      "sin", [&](const core::Tensor &x) { return ew_unary(x, "sin"); },
+      nb::arg("x"));
+  m.def(
+      "cos", [&](const core::Tensor &x) { return ew_unary(x, "cos"); },
+      nb::arg("x"));
+  m.def(
+      "rsqrt", [&](const core::Tensor &x) { return ew_unary(x, "rsqrt"); },
+      nb::arg("x"));
+  m.def(
+      "square", [&](const core::Tensor &x) { return ew_unary(x, "square"); },
+      nb::arg("x"));
+  m.def(
+      "reciprocal",
+      [&](const core::Tensor &x) { return ew_unary(x, "reciprocal"); },
+      nb::arg("x"));
+  m.def(
+      "sign", [&](const core::Tensor &x) { return ew_unary(x, "sign"); },
+      nb::arg("x"));
+  m.def(
+      "floor", [&](const core::Tensor &x) { return ew_unary(x, "floor"); },
+      nb::arg("x"));
+  m.def(
+      "ceil", [&](const core::Tensor &x) { return ew_unary(x, "ceil"); },
+      nb::arg("x"));
+  m.def(
+      "round", [&](const core::Tensor &x) { return ew_unary(x, "round"); },
+      nb::arg("x"));
+  m.def(
+      "pow",
+      [&](const core::Tensor &a, const core::Tensor &b) {
+        return ew_binary(a, b, "pow");
+      },
+      nb::arg("a"), nb::arg("b"));
+  m.def(
+      "maximum",
+      [&](const core::Tensor &a, const core::Tensor &b) {
+        return ew_binary(a, b, "maximum");
+      },
+      nb::arg("a"), nb::arg("b"));
+  m.def(
+      "minimum",
+      [&](const core::Tensor &a, const core::Tensor &b) {
+        return ew_binary(a, b, "minimum");
+      },
+      nb::arg("a"), nb::arg("b"));
 
   // ---- 单算子融合 Linear: y = x @ W^T + bias ----
   auto linear_impl = [&](const core::Tensor &x, const core::Tensor &weight,
@@ -679,14 +752,13 @@ NB_MODULE(libaxono, m) {
     const bool fp16_mixed =
         weight.dtype() == core::DataType::FLOAT16 &&
         x.dtype() == core::DataType::FLOAT32 &&
-        (bias.num_elements() == 0 ||
-         bias.dtype() == core::DataType::FLOAT16);
+        (bias.num_elements() == 0 || bias.dtype() == core::DataType::FLOAT16);
     if (!fp16_mixed &&
         (x.dtype() != weight.dtype() ||
          (bias.num_elements() != 0 && bias.dtype() != x.dtype())))
       throw std::runtime_error("linear: 数据类型不一致");
-    core::Tensor result(x.dtype(), std::vector<size_t>{x.shape()[0],
-                                                       weight.shape()[0]},
+    core::Tensor result(x.dtype(),
+                        std::vector<size_t>{x.shape()[0], weight.shape()[0]},
                         x.device());
     core::Status st;
     if (x.is_cuda()) {
@@ -703,18 +775,20 @@ NB_MODULE(libaxono, m) {
                                std::to_string(static_cast<int>(st)));
     return result;
   };
-  m.def("linear",
-        [&](const core::Tensor &x, const core::Tensor &weight,
-            const core::Tensor &bias) { return linear_impl(x, weight, bias); },
-        nb::arg("x"), nb::arg("weight"), nb::arg("bias"),
-        nb::sig("def linear(x, weight, bias) -> Tensor"));
-  m.def("linear_nobias",
-        [&](const core::Tensor &x, const core::Tensor &weight) {
-          core::Tensor empty;
-          return linear_impl(x, weight, empty);
-        },
-        nb::arg("x"), nb::arg("weight"),
-        nb::sig("def linear_nobias(x, weight) -> Tensor"));
+  m.def(
+      "linear",
+      [&](const core::Tensor &x, const core::Tensor &weight,
+          const core::Tensor &bias) { return linear_impl(x, weight, bias); },
+      nb::arg("x"), nb::arg("weight"), nb::arg("bias"),
+      nb::sig("def linear(x, weight, bias) -> Tensor"));
+  m.def(
+      "linear_nobias",
+      [&](const core::Tensor &x, const core::Tensor &weight) {
+        core::Tensor empty;
+        return linear_impl(x, weight, empty);
+      },
+      nb::arg("x"), nb::arg("weight"),
+      nb::sig("def linear_nobias(x, weight) -> Tensor"));
 
   // ---- LLM 相关算子 ----
   auto llm_unary = [&](const core::Tensor &x, const char *name) {
@@ -748,34 +822,39 @@ NB_MODULE(libaxono, m) {
                                std::to_string(static_cast<int>(st)));
     return result;
   };
-  m.def("softmax", [&](const core::Tensor &x) { return llm_unary(x, "softmax"); },
-        nb::arg("x"), nb::sig("def softmax(x) -> Tensor"));
-  m.def("log_softmax",
-        [&](const core::Tensor &x) { return llm_unary(x, "log_softmax"); },
-        nb::arg("x"), nb::sig("def log_softmax(x) -> Tensor"));
-  m.def("gelu", [&](const core::Tensor &x) { return llm_unary(x, "gelu"); },
-        nb::arg("x"), nb::sig("def gelu(x) -> Tensor"));
-  m.def("gelu_tanh",
-        [&](const core::Tensor &x) {
-          core::Tensor result(x.dtype(), x.shape(), x.device());
-          core::Status st;
-          if (x.is_cuda()) {
+  m.def(
+      "softmax", [&](const core::Tensor &x) { return llm_unary(x, "softmax"); },
+      nb::arg("x"), nb::sig("def softmax(x) -> Tensor"));
+  m.def(
+      "log_softmax",
+      [&](const core::Tensor &x) { return llm_unary(x, "log_softmax"); },
+      nb::arg("x"), nb::sig("def log_softmax(x) -> Tensor"));
+  m.def(
+      "gelu", [&](const core::Tensor &x) { return llm_unary(x, "gelu"); },
+      nb::arg("x"), nb::sig("def gelu(x) -> Tensor"));
+  m.def(
+      "gelu_tanh",
+      [&](const core::Tensor &x) {
+        core::Tensor result(x.dtype(), x.shape(), x.device());
+        core::Status st;
+        if (x.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::GeluTanh(core::Context(), x, result);
+          st = ops::cuda::GeluTanh(core::Context(), x, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::GeluTanh(core::Context(), x, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("gelu_tanh 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("x"), nb::sig("def gelu_tanh(x) -> Tensor"));
-  m.def("silu", [&](const core::Tensor &x) { return llm_unary(x, "silu"); },
-        nb::arg("x"), nb::sig("def silu(x) -> Tensor"));
+        } else {
+          st = ops::cpu::GeluTanh(core::Context(), x, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("gelu_tanh 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("x"), nb::sig("def gelu_tanh(x) -> Tensor"));
+  m.def(
+      "silu", [&](const core::Tensor &x) { return llm_unary(x, "silu"); },
+      nb::arg("x"), nb::sig("def silu(x) -> Tensor"));
 
   auto layer_norm_impl = [&](const core::Tensor &x, const core::Tensor &weight,
                              const core::Tensor &bias, float eps) {
@@ -799,13 +878,13 @@ NB_MODULE(libaxono, m) {
                                std::to_string(static_cast<int>(st)));
     return result;
   };
-  m.def("layer_norm",
-        [&](const core::Tensor &x, const core::Tensor &weight,
-            const core::Tensor &bias, float eps) {
-          return layer_norm_impl(x, weight, bias, eps);
-        },
-        nb::arg("x"), nb::arg("weight"), nb::arg("bias"), nb::arg("eps") = 1e-5f,
-        nb::sig("def layer_norm(x, weight, bias, eps=1e-5) -> Tensor"));
+  m.def(
+      "layer_norm",
+      [&](const core::Tensor &x, const core::Tensor &weight,
+          const core::Tensor &bias,
+          float eps) { return layer_norm_impl(x, weight, bias, eps); },
+      nb::arg("x"), nb::arg("weight"), nb::arg("bias"), nb::arg("eps") = 1e-5f,
+      nb::sig("def layer_norm(x, weight, bias, eps=1e-5) -> Tensor"));
 
   auto rms_norm_impl = [&](const core::Tensor &x, const core::Tensor &weight,
                            float eps) {
@@ -827,292 +906,306 @@ NB_MODULE(libaxono, m) {
                                std::to_string(static_cast<int>(st)));
     return result;
   };
-  m.def("rms_norm",
-        [&](const core::Tensor &x, const core::Tensor &weight, float eps) {
-          return rms_norm_impl(x, weight, eps);
-        },
-        nb::arg("x"), nb::arg("weight"), nb::arg("eps") = 1e-5f,
-        nb::sig("def rms_norm(x, weight, eps=1e-5) -> Tensor"));
+  m.def(
+      "rms_norm",
+      [&](const core::Tensor &x, const core::Tensor &weight, float eps) {
+        return rms_norm_impl(x, weight, eps);
+      },
+      nb::arg("x"), nb::arg("weight"), nb::arg("eps") = 1e-5f,
+      nb::sig("def rms_norm(x, weight, eps=1e-5) -> Tensor"));
 
   // ---- 序列/LLM 结构算子 (embedding/rope/attention/concat/slice/argmax) ----
-  m.def("embedding",
-        [&](const core::Tensor &ids, const core::Tensor &table) {
-          if (ids.is_cuda() != table.is_cuda())
-            throw std::runtime_error("embedding: 输入张量不在同一设备上");
-          std::vector<size_t> out_shape = ids.shape();
-          out_shape.push_back(table.shape()[1]);
-          core::Tensor result(table.dtype(), out_shape, table.device());
-          core::Status st;
-          if (ids.is_cuda()) {
+  m.def(
+      "embedding",
+      [&](const core::Tensor &ids, const core::Tensor &table) {
+        if (ids.is_cuda() != table.is_cuda())
+          throw std::runtime_error("embedding: 输入张量不在同一设备上");
+        std::vector<size_t> out_shape = ids.shape();
+        out_shape.push_back(table.shape()[1]);
+        core::Tensor result(table.dtype(), out_shape, table.device());
+        core::Status st;
+        if (ids.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::Embedding(core::Context(), ids, table, result);
+          st = ops::cuda::Embedding(core::Context(), ids, table, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::Embedding(core::Context(), ids, table, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("embedding 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("ids"), nb::arg("table"),
-        nb::sig("def embedding(ids, table) -> Tensor"));
+        } else {
+          st = ops::cpu::Embedding(core::Context(), ids, table, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("embedding 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("ids"), nb::arg("table"),
+      nb::sig("def embedding(ids, table) -> Tensor"));
 
-  m.def("rope",
-        [&](const core::Tensor &x, const core::Tensor &pos_ids, float theta) {
-          core::Tensor result(x.dtype(), x.shape(), x.device());
-          core::Status st;
-          if (x.is_cuda()) {
+  m.def(
+      "rope",
+      [&](const core::Tensor &x, const core::Tensor &pos_ids, float theta) {
+        core::Tensor result(x.dtype(), x.shape(), x.device());
+        core::Status st;
+        if (x.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::Rope(core::Context(), x, pos_ids, theta, result);
+          st = ops::cuda::Rope(core::Context(), x, pos_ids, theta, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::Rope(core::Context(), x, pos_ids, theta, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("rope 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("x"), nb::arg("pos_ids"), nb::arg("theta"),
-        nb::sig("def rope(x, pos_ids, theta) -> Tensor"));
+        } else {
+          st = ops::cpu::Rope(core::Context(), x, pos_ids, theta, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("rope 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("x"), nb::arg("pos_ids"), nb::arg("theta"),
+      nb::sig("def rope(x, pos_ids, theta) -> Tensor"));
 
-  m.def("rope_with_cos_sin",
-        [&](const core::Tensor &x, const core::Tensor &cos,
-            const core::Tensor &sin) {
-          core::Tensor result(x.dtype(), x.shape(), x.device());
-          core::Status st;
-          if (x.is_cuda()) {
+  m.def(
+      "rope_with_cos_sin",
+      [&](const core::Tensor &x, const core::Tensor &cos,
+          const core::Tensor &sin) {
+        core::Tensor result(x.dtype(), x.shape(), x.device());
+        core::Status st;
+        if (x.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::RopeWithCosSin(core::Context(), x, cos, sin, result);
+          st = ops::cuda::RopeWithCosSin(core::Context(), x, cos, sin, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::RopeWithCosSin(core::Context(), x, cos, sin, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("rope_with_cos_sin 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("x"), nb::arg("cos"), nb::arg("sin"),
-        nb::sig("def rope_with_cos_sin(x, cos, sin) -> Tensor"));
+        } else {
+          st = ops::cpu::RopeWithCosSin(core::Context(), x, cos, sin, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("rope_with_cos_sin 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("x"), nb::arg("cos"), nb::arg("sin"),
+      nb::sig("def rope_with_cos_sin(x, cos, sin) -> Tensor"));
 
-  m.def("rope_thd",
-        [&](const core::Tensor &x, const core::Tensor &pos,
-            const core::Tensor &inv_freq, int t_sec, int h_sec, int w_sec) {
-          core::Tensor result(x.dtype(), x.shape(), x.device());
-          core::Status st;
-          if (x.is_cuda()) {
+  m.def(
+      "rope_thd",
+      [&](const core::Tensor &x, const core::Tensor &pos,
+          const core::Tensor &inv_freq, int t_sec, int h_sec, int w_sec) {
+        core::Tensor result(x.dtype(), x.shape(), x.device());
+        core::Status st;
+        if (x.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::RopeThd(core::Context(), x, pos, inv_freq, t_sec,
-                                    h_sec, w_sec, result);
+          st = ops::cuda::RopeThd(core::Context(), x, pos, inv_freq, t_sec,
+                                  h_sec, w_sec, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::RopeThd(core::Context(), x, pos, inv_freq, t_sec,
-                                   h_sec, w_sec, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("rope_thd 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("x"), nb::arg("pos"), nb::arg("inv_freq"), nb::arg("t_sec"),
-        nb::arg("h_sec"), nb::arg("w_sec"),
-        nb::sig("def rope_thd(x, pos, inv_freq, t_sec, h_sec, w_sec) -> Tensor"));
+        } else {
+          st = ops::cpu::RopeThd(core::Context(), x, pos, inv_freq, t_sec,
+                                 h_sec, w_sec, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("rope_thd 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("x"), nb::arg("pos"), nb::arg("inv_freq"), nb::arg("t_sec"),
+      nb::arg("h_sec"), nb::arg("w_sec"),
+      nb::sig("def rope_thd(x, pos, inv_freq, t_sec, h_sec, w_sec) -> Tensor"));
 
 #ifdef AXONO_WITH_CUDA
-  m.def("gqa_decode_attention",
-        [](const core::Tensor &q, const core::Tensor &k, const core::Tensor &v) {
-          core::Tensor result(q.dtype(), q.shape(), q.device());
-          core::Status st = ops::cuda::GqaDecodeAttention(core::Context(), q, k, v, result);
-          if (st != core::Status::OK)
-            throw std::runtime_error("gqa_decode_attention 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("q"), nb::arg("k"), nb::arg("v"),
-        nb::sig("def gqa_decode_attention(q, k, v) -> Tensor"));
+  m.def(
+      "gqa_decode_attention",
+      [](const core::Tensor &q, const core::Tensor &k, const core::Tensor &v) {
+        core::Tensor result(q.dtype(), q.shape(), q.device());
+        core::Status st =
+            ops::cuda::GqaDecodeAttention(core::Context(), q, k, v, result);
+        if (st != core::Status::OK)
+          throw std::runtime_error("gqa_decode_attention 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("q"), nb::arg("k"), nb::arg("v"),
+      nb::sig("def gqa_decode_attention(q, k, v) -> Tensor"));
 #endif
 
-  m.def("silu_mul",
-        [](const core::Tensor &gate, const core::Tensor &up) {
-          core::Tensor result(gate.dtype(), gate.shape(), gate.device());
-          core::Status st;
-          if (gate.is_cuda()) {
+  m.def(
+      "silu_mul",
+      [](const core::Tensor &gate, const core::Tensor &up) {
+        core::Tensor result(gate.dtype(), gate.shape(), gate.device());
+        core::Status st;
+        if (gate.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::SiluMul(core::Context(), gate, up, result);
+          st = ops::cuda::SiluMul(core::Context(), gate, up, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::SiluMul(core::Context(), gate, up, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("silu_mul 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("gate"), nb::arg("up"),
-        nb::sig("def silu_mul(gate, up) -> Tensor"));
+        } else {
+          st = ops::cpu::SiluMul(core::Context(), gate, up, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("silu_mul 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("gate"), nb::arg("up"),
+      nb::sig("def silu_mul(gate, up) -> Tensor"));
 
-  m.def("add_rms_norm",
-        [](const core::Tensor &x, const core::Tensor &residual,
-           const core::Tensor &weight, float eps) {
-          core::Tensor y(x.dtype(), x.shape(), x.device());
-          core::Tensor out(x.dtype(), x.shape(), x.device());
-          core::Status st;
-          if (x.is_cuda()) {
+  m.def(
+      "add_rms_norm",
+      [](const core::Tensor &x, const core::Tensor &residual,
+         const core::Tensor &weight, float eps) {
+        core::Tensor y(x.dtype(), x.shape(), x.device());
+        core::Tensor out(x.dtype(), x.shape(), x.device());
+        core::Status st;
+        if (x.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::AddRmsNorm(core::Context(), x, residual, weight,
-                                       eps, y, out);
+          st = ops::cuda::AddRmsNorm(core::Context(), x, residual, weight, eps,
+                                     y, out);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::AddRmsNorm(core::Context(), x, residual, weight,
-                                      eps, y, out);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("add_rms_norm 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return nb::make_tuple(y, out);
-        },
-        nb::arg("x"), nb::arg("residual"), nb::arg("weight"), nb::arg("eps"),
-        nb::sig("def add_rms_norm(x, residual, weight, eps) -> (Tensor, Tensor)"));
+        } else {
+          st = ops::cpu::AddRmsNorm(core::Context(), x, residual, weight, eps,
+                                    y, out);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("add_rms_norm 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return nb::make_tuple(y, out);
+      },
+      nb::arg("x"), nb::arg("residual"), nb::arg("weight"), nb::arg("eps"),
+      nb::sig(
+          "def add_rms_norm(x, residual, weight, eps) -> (Tensor, Tensor)"));
 
-  m.def("mrope_cos_sin",
-        [](const core::Tensor &pos, const core::Tensor &inv_freq, int h_sec,
-           int w_sec) {
-          core::Tensor cos_out(core::DataType::FLOAT32, {}, pos.device());
-          core::Tensor sin_out(core::DataType::FLOAT32, {}, pos.device());
-          core::Status st;
-          if (pos.is_cuda()) {
+  m.def(
+      "mrope_cos_sin",
+      [](const core::Tensor &pos, const core::Tensor &inv_freq, int h_sec,
+         int w_sec) {
+        core::Tensor cos_out(core::DataType::FLOAT32, {}, pos.device());
+        core::Tensor sin_out(core::DataType::FLOAT32, {}, pos.device());
+        core::Status st;
+        if (pos.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
-                                        w_sec, cos_out, sin_out);
+          st = ops::cuda::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
+                                      w_sec, cos_out, sin_out);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
-                                       w_sec, cos_out, sin_out);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("mrope_cos_sin 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return nb::make_tuple(cos_out, sin_out);
-        },
-        nb::arg("pos"), nb::arg("inv_freq"), nb::arg("h_sec"),
-        nb::arg("w_sec"),
-        nb::sig("def mrope_cos_sin(pos, inv_freq, h_sec, w_sec) -> (Tensor, Tensor)"));
+        } else {
+          st = ops::cpu::MropeCosSin(core::Context(), pos, inv_freq, h_sec,
+                                     w_sec, cos_out, sin_out);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("mrope_cos_sin 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return nb::make_tuple(cos_out, sin_out);
+      },
+      nb::arg("pos"), nb::arg("inv_freq"), nb::arg("h_sec"), nb::arg("w_sec"),
+      nb::sig("def mrope_cos_sin(pos, inv_freq, h_sec, w_sec) -> (Tensor, "
+              "Tensor)"));
 
-  m.def("scaled_dot_product_attention",
-        [&](const core::Tensor &q, const core::Tensor &k,
-            const core::Tensor &v, bool is_causal) {
-          std::vector<size_t> out_shape = q.shape();
-          core::Tensor result(q.dtype(), out_shape, q.device());
-          core::Status st;
-          if (q.is_cuda()) {
+  m.def(
+      "scaled_dot_product_attention",
+      [&](const core::Tensor &q, const core::Tensor &k, const core::Tensor &v,
+          bool is_causal) {
+        std::vector<size_t> out_shape = q.shape();
+        core::Tensor result(q.dtype(), out_shape, q.device());
+        core::Status st;
+        if (q.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::ScaledDotProductAttention(core::Context(), q, k, v,
-                                                      is_causal, result);
+          st = ops::cuda::ScaledDotProductAttention(core::Context(), q, k, v,
+                                                    is_causal, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::ScaledDotProductAttention(core::Context(), q, k, v,
-                                                     is_causal, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("attention 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("q"), nb::arg("k"), nb::arg("v"),
-        nb::arg("is_causal") = false,
-        nb::sig("def scaled_dot_product_attention(q, k, v, is_causal=False) -> Tensor"));
+        } else {
+          st = ops::cpu::ScaledDotProductAttention(core::Context(), q, k, v,
+                                                   is_causal, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("attention 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("q"), nb::arg("k"), nb::arg("v"), nb::arg("is_causal") = false,
+      nb::sig("def scaled_dot_product_attention(q, k, v, is_causal=False) -> "
+              "Tensor"));
 
-  m.def("concat",
-        [&](const core::Tensor &a, const core::Tensor &b, int axis) {
-          if (a.is_cuda() != b.is_cuda() || a.dtype() != b.dtype())
-            throw std::runtime_error("concat: 输入不在同一设备或类型不一致");
-          std::vector<size_t> shape = a.shape();
-          const size_t nd = a.ndim();
-          size_t ax = axis < 0 ? nd + static_cast<size_t>(axis)
-                               : static_cast<size_t>(axis);
-          shape[ax] += b.shape()[ax];
-          core::Tensor result(a.dtype(), shape, a.device());
-          core::Status st;
-          if (a.is_cuda()) {
+  m.def(
+      "concat",
+      [&](const core::Tensor &a, const core::Tensor &b, int axis) {
+        if (a.is_cuda() != b.is_cuda() || a.dtype() != b.dtype())
+          throw std::runtime_error("concat: 输入不在同一设备或类型不一致");
+        std::vector<size_t> shape = a.shape();
+        const size_t nd = a.ndim();
+        size_t ax = axis < 0 ? nd + static_cast<size_t>(axis)
+                             : static_cast<size_t>(axis);
+        shape[ax] += b.shape()[ax];
+        core::Tensor result(a.dtype(), shape, a.device());
+        core::Status st;
+        if (a.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::Concat(core::Context(), a, b, axis, result);
+          st = ops::cuda::Concat(core::Context(), a, b, axis, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::Concat(core::Context(), a, b, axis, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("concat 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("a"), nb::arg("b"), nb::arg("axis"),
-        nb::sig("def concat(a, b, axis) -> Tensor"));
+        } else {
+          st = ops::cpu::Concat(core::Context(), a, b, axis, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("concat 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("a"), nb::arg("b"), nb::arg("axis"),
+      nb::sig("def concat(a, b, axis) -> Tensor"));
 
-  m.def("slice",
-        [&](const core::Tensor &x, size_t axis, size_t start, size_t length) {
-          std::vector<size_t> shape = x.shape();
-          shape[axis] = length;
-          core::Tensor result(x.dtype(), shape, x.device());
-          core::Status st;
-          if (x.is_cuda()) {
+  m.def(
+      "slice",
+      [&](const core::Tensor &x, size_t axis, size_t start, size_t length) {
+        std::vector<size_t> shape = x.shape();
+        shape[axis] = length;
+        core::Tensor result(x.dtype(), shape, x.device());
+        core::Status st;
+        if (x.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::Slice(core::Context(), x, axis, start, length,
-                                  result);
+          st =
+              ops::cuda::Slice(core::Context(), x, axis, start, length, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::Slice(core::Context(), x, axis, start, length,
-                                 result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("slice 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("x"), nb::arg("axis"), nb::arg("start"), nb::arg("length"),
-        nb::sig("def slice(x, axis, start, length) -> Tensor"));
+        } else {
+          st = ops::cpu::Slice(core::Context(), x, axis, start, length, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("slice 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("x"), nb::arg("axis"), nb::arg("start"), nb::arg("length"),
+      nb::sig("def slice(x, axis, start, length) -> Tensor"));
 
-  m.def("argmax",
-        [&](const core::Tensor &x) {
-          const size_t rows = x.num_elements() / x.shape().back();
-          core::Tensor result(core::DataType::INT64, {rows}, x.device());
-          core::Status st;
-          if (x.is_cuda()) {
+  m.def(
+      "argmax",
+      [&](const core::Tensor &x) {
+        const size_t rows = x.num_elements() / x.shape().back();
+        core::Tensor result(core::DataType::INT64, {rows}, x.device());
+        core::Status st;
+        if (x.is_cuda()) {
 #ifdef AXONO_WITH_CUDA
-            st = ops::cuda::ArgmaxLastDim(core::Context(), x, result);
+          st = ops::cuda::ArgmaxLastDim(core::Context(), x, result);
 #else
-            st = core::Status::DEVICE_ERROR;
+          st = core::Status::DEVICE_ERROR;
 #endif
-          } else {
-            st = ops::cpu::ArgmaxLastDim(core::Context(), x, result);
-          }
-          if (st != core::Status::OK)
-            throw std::runtime_error("argmax 失败, 错误代码: " +
-                                     std::to_string(static_cast<int>(st)));
-          return result;
-        },
-        nb::arg("x"), nb::sig("def argmax(x) -> Tensor"));
+        } else {
+          st = ops::cpu::ArgmaxLastDim(core::Context(), x, result);
+        }
+        if (st != core::Status::OK)
+          throw std::runtime_error("argmax 失败, 错误代码: " +
+                                   std::to_string(static_cast<int>(st)));
+        return result;
+      },
+      nb::arg("x"), nb::sig("def argmax(x) -> Tensor"));
 
   // ---- 信息 ----
   m.def("cuda_available", []() {
@@ -1125,40 +1218,35 @@ NB_MODULE(libaxono, m) {
 
 #ifdef AXONO_WITH_CUDA
   // ---- cuBLASLt 开关 ----
-  m.def("use_cublas_lt", [](bool enable) {
-         ops::cuda::UseCublasLt(enable);
-       }, nb::arg("enable"), nb::sig("def use_cublas_lt(enable: bool) -> None"));
-  m.def("cublas_lt_enabled", []() {
-         return ops::cuda::CublasLtEnabled();
-       });
+  m.def(
+      "use_cublas_lt", [](bool enable) { ops::cuda::UseCublasLt(enable); },
+      nb::arg("enable"), nb::sig("def use_cublas_lt(enable: bool) -> None"));
+  m.def("cublas_lt_enabled", []() { return ops::cuda::CublasLtEnabled(); });
 
   // ---- CUDA Graph ----
   // 低层流句柄 API (供 Python 上下文管理器使用)
   m.def("_graph_begin_capture", []() {
-         // 预热 matmul 后端句柄/workspace: cuBLAS/Lt 首次调用会做内部分配,
-         // 若发生在捕获体内会被判非法 (捕获禁止分配/同步)。
-         // 用 1x1 matmul 走一遍完整路径 (含 Lt heuristic + 回退), 仅一次。
-         static std::once_flag warm_once;
-         std::call_once(warm_once, [] {
-           // 用带设备串的构造建 CUDA 张量 (Create() 是 CPU 的)
-           core::Tensor a(core::DataType::FLOAT32, core::Shape{8, 8},
-                          "cuda");
-           core::Tensor b(core::DataType::FLOAT32, core::Shape{8, 8},
-                          "cuda");
-           core::Tensor c(core::DataType::FLOAT32, core::Shape{8, 8},
-                          "cuda");
-           ops::cuda::MatMul(core::Context(), a, b, c);
-         });
-         // 捕获流是 non-blocking, 与默认流无隐式同步 —— 捕获前必须等
-         // 所有已提交的 kernel (如输入填充) 完成, 否则图内 kernel 与
-         // 它们产生竞态 (回放读到未写入的数据)。
-         cudaDeviceSynchronize();
-         cudaStream_t stream = nullptr;
-         core::Status st = core::cuda::BeginGraphCapture(&stream);
-         if (st != core::Status::OK)
-           throw std::runtime_error("_graph_begin_capture 失败");
-         return reinterpret_cast<intptr_t>(stream);
-       });
+    // 预热 matmul 后端句柄/workspace: cuBLAS/Lt 首次调用会做内部分配,
+    // 若发生在捕获体内会被判非法 (捕获禁止分配/同步)。
+    // 用 1x1 matmul 走一遍完整路径 (含 Lt heuristic + 回退), 仅一次。
+    static std::once_flag warm_once;
+    std::call_once(warm_once, [] {
+      // 用带设备串的构造建 CUDA 张量 (Create() 是 CPU 的)
+      core::Tensor a(core::DataType::FLOAT32, core::Shape{8, 8}, "cuda");
+      core::Tensor b(core::DataType::FLOAT32, core::Shape{8, 8}, "cuda");
+      core::Tensor c(core::DataType::FLOAT32, core::Shape{8, 8}, "cuda");
+      ops::cuda::MatMul(core::Context(), a, b, c);
+    });
+    // 捕获流是 non-blocking, 与默认流无隐式同步 —— 捕获前必须等
+    // 所有已提交的 kernel (如输入填充) 完成, 否则图内 kernel 与
+    // 它们产生竞态 (回放读到未写入的数据)。
+    cudaDeviceSynchronize();
+    cudaStream_t stream = nullptr;
+    core::Status st = core::cuda::BeginGraphCapture(&stream);
+    if (st != core::Status::OK)
+      throw std::runtime_error("_graph_begin_capture 失败");
+    return reinterpret_cast<intptr_t>(stream);
+  });
   m.def("_graph_end_capture",
         [](intptr_t handle, core::cuda::CudaGraphExec &exec) {
           auto stream = reinterpret_cast<cudaStream_t>(handle);
@@ -1169,9 +1257,8 @@ NB_MODULE(libaxono, m) {
                 "或未提交任何 kernel");
         });
   m.def("_graph_abort_capture", [](intptr_t handle) {
-         core::cuda::AbortGraphCapture(
-             reinterpret_cast<cudaStream_t>(handle));
-       });
+    core::cuda::AbortGraphCapture(reinterpret_cast<cudaStream_t>(handle));
+  });
 
   // 用法: g = CUDAGraph(); g.capture(fn); g.replay(); g.reset()
   // capture 体内只能提交 CUDA 算子 (matmul/add/relu), 不能有 H2D/D2H。
@@ -1214,8 +1301,7 @@ NB_MODULE(libaxono, m) {
           [](core::cuda::CudaGraphExec &self) {
             core::Status st = self.Replay(0);
             if (st != core::Status::OK)
-              throw std::runtime_error(
-                  "CUDAGraph.replay: 图未捕获或回放失败");
+              throw std::runtime_error("CUDAGraph.replay: 图未捕获或回放失败");
           },
           nb::sig("def replay(self) -> None"))
       .def(

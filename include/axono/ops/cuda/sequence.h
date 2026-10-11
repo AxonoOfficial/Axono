@@ -14,8 +14,7 @@ AXONO_EXPORT core::Status Embedding(const core::Context &ctx,
                                     const core::Tensor &ids,
                                     const core::Tensor &table,
                                     core::Tensor &result);
-AXONO_EXPORT core::Status Rope(const core::Context &ctx,
-                               const core::Tensor &x,
+AXONO_EXPORT core::Status Rope(const core::Context &ctx, const core::Tensor &x,
                                const core::Tensor &pos_ids, float theta,
                                core::Tensor &result);
 // 语义同 cpu 侧 RopeWithCosSin / RopeThd。
@@ -27,9 +26,8 @@ AXONO_EXPORT core::Status RopeWithCosSin(const core::Context &ctx,
 AXONO_EXPORT core::Status RopeThd(const core::Context &ctx,
                                   const core::Tensor &x,
                                   const core::Tensor &pos,
-                                  const core::Tensor &inv_freq,
-                                  int t_sec, int h_sec, int w_sec,
-                                  core::Tensor &result);
+                                  const core::Tensor &inv_freq, int t_sec,
+                                  int h_sec, int w_sec, core::Tensor &result);
 // M-RoPE cos/sin 表: pos3 (3, seq) + inv_freq (half) -> cos/sin (seq, 2*half)。
 AXONO_EXPORT core::Status MropeCosSin(const core::Context &ctx,
                                       const core::Tensor &pos,
@@ -42,9 +40,8 @@ AXONO_EXPORT core::Status ScaledDotProductAttention(
 AXONO_EXPORT core::Status Concat(const core::Context &ctx,
                                  const core::Tensor &a, const core::Tensor &b,
                                  int axis, core::Tensor &result);
-AXONO_EXPORT core::Status Slice(const core::Context &ctx,
-                                const core::Tensor &x, size_t axis,
-                                size_t start, size_t length,
+AXONO_EXPORT core::Status Slice(const core::Context &ctx, const core::Tensor &x,
+                                size_t axis, size_t start, size_t length,
                                 core::Tensor &result);
 AXONO_EXPORT core::Status ArgmaxLastDim(const core::Context &ctx,
                                         const core::Tensor &x,

@@ -77,8 +77,9 @@ from axono.core.tensor import DataType
 
 # —— 张量与算子 ——
 a = Tensor.from_numpy(np.random.rand(4, 8).astype(np.float32)).to("cuda")
-b = a @ a.T                                  # cuBLASLt matmul
-h = a.cast_to(DataType.FLOAT16)              # fp16 转换
+b = a @ a.T  # cuBLASLt matmul
+h = a.cast_to(DataType.FLOAT16)  # fp16 转换
+
 
 # —— 构建模型 ——
 class MLP(nn.Module):
@@ -86,8 +87,10 @@ class MLP(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(64, 128)
         self.fc2 = nn.Linear(128, 64)
+
     def forward(self, x):
         return self.fc2(axono.gelu(self.fc1(x)))
+
 
 model = MLP()
 # model.compile()           # 计算图优化 (可选)

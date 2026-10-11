@@ -18,15 +18,15 @@ AXONO_EXPORT core::Status Embedding(const core::Context &ctx,
 // 旋转位置编码 (RoPE, 逐位置标准式): x (rows, n_heads, head_dim) 就地按
 // 最后一维成对旋转 (偶, 奇), freq = theta^(-2i/head_dim), pos_ids (rows,)。
 // 只支持 FLOAT32。返回输出张量 (可 = 输入实现原地语义由调用方控制)。
-AXONO_EXPORT core::Status Rope(const core::Context &ctx,
-                               const core::Tensor &x,
+AXONO_EXPORT core::Status Rope(const core::Context &ctx, const core::Tensor &x,
                                const core::Tensor &pos_ids, float theta,
                                core::Tensor &result);
 
 // RoPE 变体 1: 直接用 (cos, sin) 旋转 (M-RoPE / 3D 位置)。
-//   x: (seq, n_heads, head_dim) FLOAT32; cos/sin: (seq, head_dim) (广播到 heads)。
-//   旋转按 HF rotate_half 约定: out[i] = x[i]*cos[i] - x[i+half]*sin[i],
-//   out[i+half] = x[i+half]*cos[i+half] + x[i]*sin[i+half] (half=dim/2)。
+//   x: (seq, n_heads, head_dim) FLOAT32; cos/sin: (seq, head_dim) (广播到
+//   heads)。 旋转按 HF rotate_half 约定: out[i] = x[i]*cos[i] -
+//   x[i+half]*sin[i], out[i+half] = x[i+half]*cos[i+half] + x[i]*sin[i+half]
+//   (half=dim/2)。
 AXONO_EXPORT core::Status RopeWithCosSin(const core::Context &ctx,
                                          const core::Tensor &x,
                                          const core::Tensor &cos,
@@ -39,9 +39,8 @@ AXONO_EXPORT core::Status RopeWithCosSin(const core::Context &ctx,
 AXONO_EXPORT core::Status RopeThd(const core::Context &ctx,
                                   const core::Tensor &x,
                                   const core::Tensor &pos,
-                                  const core::Tensor &inv_freq,
-                                  int t_sec, int h_sec, int w_sec,
-                                  core::Tensor &result);
+                                  const core::Tensor &inv_freq, int t_sec,
+                                  int h_sec, int w_sec, core::Tensor &result);
 
 // M-RoPE cos/sin 表 (与 RopeWithCosSin 配套, 无 numpy):
 //   pos: (3, seq) INT64 (T/H/W); inv_freq: (half,) FLOAT32;
@@ -68,9 +67,8 @@ AXONO_EXPORT core::Status Concat(const core::Context &ctx,
                                  int axis, core::Tensor &result);
 
 // 沿 axis 取切片 [start, start+length) (负索引不支持, contiguous)。
-AXONO_EXPORT core::Status Slice(const core::Context &ctx,
-                                const core::Tensor &x, size_t axis,
-                                size_t start, size_t length,
+AXONO_EXPORT core::Status Slice(const core::Context &ctx, const core::Tensor &x,
+                                size_t axis, size_t start, size_t length,
                                 core::Tensor &result);
 
 // 沿最后一维 argmax, 返回 INT64 (...,)。

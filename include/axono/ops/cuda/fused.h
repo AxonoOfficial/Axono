@@ -13,11 +13,11 @@ namespace cuda {
 // y = silu(gate) * up  (SwiGLU 中段, 逐元素, 形状一致)
 AXONO_EXPORT core::Status SiluMul(const core::Context &ctx,
                                   const core::Tensor &gate,
-                                  const core::Tensor &up,
-                                  core::Tensor &result);
+                                  const core::Tensor &up, core::Tensor &result);
 
-// 融合残差 + RMSNorm: y = x + residual; out = y * rsqrt(mean(y²)+eps) * weight。
-// y 输出残差和 (供下一层复用), out 输出 norm 后结果。末维 hidden 为归约维。
+// 融合残差 + RMSNorm: y = x + residual; out = y * rsqrt(mean(y²)+eps) *
+// weight。 y 输出残差和 (供下一层复用), out 输出 norm 后结果。末维 hidden
+// 为归约维。
 AXONO_EXPORT core::Status AddRmsNorm(const core::Context &ctx,
                                      const core::Tensor &x,
                                      const core::Tensor &residual,

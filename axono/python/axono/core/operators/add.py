@@ -35,11 +35,7 @@ def _tile_rows(b: Tensor, m: int) -> Tensor:
 
 def _inplace_ok(a: Tensor, b: Tensor) -> bool:
     """检查 a += b 是否可安全原地执行 (同形/同设备/同类型)。"""
-    return (
-        a.shape == b.shape
-        and a.dtype == b.dtype
-        and a.device == b.device
-    )
+    return a.shape == b.shape and a.dtype == b.dtype and a.device == b.device
 
 
 def add(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
@@ -56,9 +52,7 @@ def add(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
     若未指定 out 且 a/b 同形同设备同类型, 直接原地 a += b 并返回 a。
     """
     same_shape = a.shape == b.shape
-    broadcast = (
-        len(a.shape) == 2 and len(b.shape) == 1 and a.shape[1] == b.shape[0]
-    )
+    broadcast = len(a.shape) == 2 and len(b.shape) == 1 and a.shape[1] == b.shape[0]
     if not same_shape and not broadcast:
         raise ValueError(
             f"add: 形状不兼容 {a.shape} vs {b.shape} (仅支持同形或 (M,K)+(K,) 广播)"
@@ -67,7 +61,10 @@ def add(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
     # 广播情形 CUDA 需先 tile, 不支持原地
     need_tile = broadcast and a.device != "cpu"
     can_inplace = (
-        out is None and same_shape and not need_tile and is_inplace_enabled()
+        out is None
+        and same_shape
+        and not need_tile
+        and is_inplace_enabled()
         and _inplace_ok(a, b)
     )
     if can_inplace:

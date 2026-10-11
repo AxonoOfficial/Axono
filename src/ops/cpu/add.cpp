@@ -1,8 +1,8 @@
 #include <cstring>
 
 #include "axono/core/macros.h"
-#include "axono/core/types.h"
 #include "axono/core/tensor.h"
+#include "axono/core/types.h"
 
 namespace axono {
 namespace ops {

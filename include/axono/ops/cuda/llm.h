@@ -12,19 +12,17 @@ namespace cuda {
 // 均仅浮点 (FLOAT32/FLOAT64); 兼容 Graph 捕获 (当前流 + IsCapturing 守卫)。
 
 AXONO_EXPORT core::Status Softmax(const core::Context &ctx,
-                                  const core::Tensor &x,
-                                  core::Tensor &result);
+                                  const core::Tensor &x, core::Tensor &result);
 AXONO_EXPORT core::Status LogSoftmax(const core::Context &ctx,
                                      const core::Tensor &x,
                                      core::Tensor &result);
-AXONO_EXPORT core::Status Gelu(const core::Context &ctx,
-                               const core::Tensor &x, core::Tensor &result);
+AXONO_EXPORT core::Status Gelu(const core::Context &ctx, const core::Tensor &x,
+                               core::Tensor &result);
 // GELU (tanh 近似式): 0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715 x^3)))。
 AXONO_EXPORT core::Status GeluTanh(const core::Context &ctx,
-                                   const core::Tensor &x,
-                                   core::Tensor &result);
-AXONO_EXPORT core::Status Silu(const core::Context &ctx,
-                               const core::Tensor &x, core::Tensor &result);
+                                   const core::Tensor &x, core::Tensor &result);
+AXONO_EXPORT core::Status Silu(const core::Context &ctx, const core::Tensor &x,
+                               core::Tensor &result);
 // weight/bias 可为空张量表示无仿射。
 AXONO_EXPORT core::Status LayerNorm(const core::Context &ctx,
                                     const core::Tensor &x,

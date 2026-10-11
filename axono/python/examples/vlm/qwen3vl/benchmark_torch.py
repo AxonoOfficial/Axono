@@ -31,7 +31,9 @@ import numpy as np
 
 import axono
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from examples.vlm.qwen3vl.model import (  # noqa: E402
     IMAGE_TOKEN_ID,
@@ -48,9 +50,9 @@ def make_inputs(model_dir: str, grid_h: int, grid_w: int):
     patch = v["patch_size"]
     n = grid_h * grid_w
     rng = np.random.default_rng(42)
-    pixels = rng.standard_normal(
-        (n, 3, v["temporal_patch_size"], patch, patch)
-    ).astype(np.float32)
+    pixels = rng.standard_normal((n, 3, v["temporal_patch_size"], patch, patch)).astype(
+        np.float32
+    )
     from tokenizers import Tokenizer
 
     tok = Tokenizer.from_file(os.path.join(model_dir, "tokenizer.json"))
@@ -94,8 +96,8 @@ def run_axono(model_dir, device, pixels, ids, grid_h, grid_w):
 def run_torch(model_dir, device, pixels, ids, grid_h, grid_w):
     import torch
     from transformers.models.qwen3_vl import (
-    Qwen3VLForConditionalGeneration as Qwen3VLHF,
-)
+        Qwen3VLForConditionalGeneration as Qwen3VLHF,
+    )
 
     if device != "cuda":
         raise SystemExit("torch 基线仅支持 cuda")
@@ -103,9 +105,15 @@ def run_torch(model_dir, device, pixels, ids, grid_h, grid_w):
         cfg = json.load(f)
     n = grid_h * grid_w
     v = cfg["vision_config"]
-    ref = Qwen3VLHF.from_pretrained(model_dir, torch_dtype=torch.float32).to(device).eval()
+    ref = (
+        Qwen3VLHF.from_pretrained(model_dir, torch_dtype=torch.float32)
+        .to(device)
+        .eval()
+    )
     pv = torch.from_numpy(
-        pixels.reshape(n, 3 * v["temporal_patch_size"], v["patch_size"], v["patch_size"])
+        pixels.reshape(
+            n, 3 * v["temporal_patch_size"], v["patch_size"], v["patch_size"]
+        )
     ).to(device)
     gthw = torch.tensor([[1, grid_h, grid_w]], device=device)
     iid = torch.tensor([ids], device=device)
@@ -154,13 +162,19 @@ def main() -> int:
     args = ap.parse_args()
 
     pixels, ids = make_inputs(args.model, args.grid, args.grid)
-    print(f"输入: {args.grid}x{args.grid} patch, prompt {len(ids)} tokens, device={args.device}")
+    print(
+        f"输入: {args.grid}x{args.grid} patch, prompt {len(ids)} tokens, device={args.device}"
+    )
 
     results = {}
-    results["Axono"] = run_axono(args.model, args.device, pixels, ids, args.grid, args.grid)
+    results["Axono"] = run_axono(
+        args.model, args.device, pixels, ids, args.grid, args.grid
+    )
     print(f"Axono: {results['Axono']:.1f} ms")
     if args.device == "cuda":
-        results["torch"] = run_torch(args.model, args.device, pixels, ids, args.grid, args.grid)
+        results["torch"] = run_torch(
+            args.model, args.device, pixels, ids, args.grid, args.grid
+        )
         print(f"torch: {results['torch']:.1f} ms")
         print(f"加速比 (torch / Axono): {results['torch'] / results['Axono']:.2f}x")
 
