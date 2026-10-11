@@ -158,8 +158,8 @@ core::Status Linear(const core::Context &ctx, const core::Tensor &x,
         return core::Status::INTERNAL_ERROR;
       return st32;
     }
-    core::Tensor out32 = resh.CastTo(core::DataType::FLOAT32);
-    core::Status st = result.CopyFrom(out32);
+    // fp16 → fp32 直拷合并写 result (省一次中间张量分配 + 一次 kernel)
+    core::Status st = core::cuda::tensor::DispatchCastCopyF16F32(result, resh);
     if (core::cuda::MaybeSync() != cudaSuccess)
       return core::Status::INTERNAL_ERROR;
     return st;
