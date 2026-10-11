@@ -12,15 +12,25 @@ on:
 permissions:
   contents: write
 
+env:
+  # CUDA 版本 → (apt 包后缀, apt 仓库, 文件名 tag)。
+  # 11.8 只在 ubuntu2204 repo 提供; 12.6+ 在 ubuntu2404。
+  CUDA_VERSIONS: "11.8 12.6 12.8 13.0"
+
 jobs:
-  build-wheels:
-    name: Build wheel (${{ matrix.cuda }}, py${{ matrix.python-version }})
+  build-linux:
+    name: Linux wheel (${{ matrix.cuda }}, py${{ matrix.python-version }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        cuda: [cpu, cuda]
+        cuda:
+          - { name: cpu,   tag: "",     pkg: "",      repo: "" }
+          - { name: cu118, tag: cu118,  pkg: "11-8",  repo: ubuntu2204 }
+          - { name: cu126, tag: cu126,  pkg: "12-6",  repo: ubuntu2404 }
+          - { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404 }
+          - { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404 }
     steps:
       - uses: actions/checkout@v4
 
@@ -28,18 +38,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Set up CUDA toolchain
-        if: matrix.cuda == 'cuda'
-        # 官方 CUDA 安装 (无需 GPU 即可编译; 运行时才需要显卡)
+      - name: Set up CUDA toolchain ${{ matrix.cuda.name }}
+        if: matrix.cuda.name != 'cpu'
         run: |
-          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/${{ matrix.cuda.repo }}/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update -qq
-          # 只装编译必需子集 ( toolkit 约 4GB, nvcc+cublas 头文件即可)
-          sudo apt-get install -y -qq cuda-nvcc-12-6 cuda-cudart-dev-12-6 \
-               libcublas-dev-12-6 cuda-toolkit-12-6 || \
-          sudo apt-get install -y -qq cuda-toolkit-12-6
-          echo "/usr/local/cuda-12.6/bin" >> "$GITHUB_PATH"
+          sudo apt-get install -y -qq cuda-nvcc-${{ matrix.cuda.pkg }} \
+               cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
+               || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }}
+          echo "/usr/local/cuda-${{ matrix.cuda.pkg }}*/bin" > /dev/null
+          NVCC=$(find /usr/local/cuda-*/bin -name nvcc 2>/dev/null | head -1)
+          echo "$(dirname "$NVCC")" >> "$GITHUB_PATH"
 
       - name: Install build deps
         run: |
@@ -48,16 +58,18 @@ jobs:
 
       - name: Build wheel
         run: |
-          if [ "${{ matrix.cuda }}" = "cuda" ]; then
-            bash wheel.sh --cuda --ignore-drivers --no-build-isolation --outdir "dist/${{ matrix.cuda }}"
+          if [ "${{ matrix.cuda.name }}" = "cpu" ]; then
+            bash wheel.sh --no-cuda --outdir "dist/${{ matrix.cuda.name }}"
           else
-            bash wheel.sh --no-cuda --outdir "dist/${{ matrix.cuda }}"
+            AXONO_CUDA_TAG=${{ matrix.cuda.tag }} \
+              bash wheel.sh --cuda --ignore-drivers --no-build-isolation \
+              --outdir "dist/${{ matrix.cuda.name }}"
           fi
         env:
           PIP: python -m pip
 
       - name: Smoke test (CPU wheels only; CUDA wheel 需 GPU 运行时)
-        if: matrix.cuda == 'cpu'
+        if: matrix.cuda.name == 'cpu'
         run: |
           pip install dist/cpu/axono-*.whl
           python -c "import axono; print('import OK', axono.__version__)"
@@ -65,15 +77,51 @@ jobs:
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.cuda }}-py${{ matrix.python-version }}
-          path: dist/${{ matrix.cuda }}/axono-*.whl
+          name: wheel-${{ matrix.cuda.name }}-py${{ matrix.python-version }}
+          path: dist/${{ matrix.cuda.name }}/axono-*.whl
+
+  build-windows:
+    name: Windows wheel (${{ matrix.cuda }}, py${{ matrix.python-version }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        cuda: [cpu]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install nanobind numpy scikit-build-core build
+
+      - name: Build wheel
+        shell: pwsh
+        run: .\wheel.ps1 -NoCuda -OutDir "dist/cpu"
+
+      - name: Smoke test (CPU wheels only)
+        shell: pwsh
+        run: |
+          pip install (Get-Item dist/cpu/axono-*.whl).FullName
+          python -c "import axono; print('import OK', axono.__version__)"
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-win-${{ matrix.cuda }}-py${{ matrix.python-version }}
+          path: dist/cpu/axono-*.whl
 
   publish:
     name: Publish to GitHub Release
-    needs: build-wheels
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-24.04
     steps:
-      - name: Download all wheels (按 artifact 分目录保留 cpu/cuda)
+      - name: Download all wheels
         uses: actions/download-artifact@v4
         with:
           path: wheels

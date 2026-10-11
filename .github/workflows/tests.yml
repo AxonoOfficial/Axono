@@ -38,6 +38,116 @@ jobs:
           cd "$TESTDIR"
           python -m pytest tests -v --tb=short
 
+  windows:
+    name: Windows tests (CPU, py${{ matrix.python-version }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # 走 install.ps1 (与 Windows 用户实际安装路径一致)
+      - name: Build and install via install.ps1
+        shell: pwsh
+        run: .\install.ps1 -NoCuda
+
+      - name: Run tests (against installed package)
+        shell: pwsh
+        run: |
+          pip install pytest
+          $testdir = Join-Path $env:RUNNER_TEMP "axono-tests"
+          Copy-Item -Recurse axono/python/tests $testdir
+          Set-Location $testdir
+          python -m pytest tests -v --tb=short
+
+  build-wheel:
+    # 预演 Release 全矩阵: release.yml 发布的每个组合都在 PR 上构建一遍,
+    # 保证发布不会因脚本/依赖变化而挂
+    name: Build wheel (${{ matrix.os }}, ${{ matrix.cuda.name }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        python-version: ["3.10", "3.13"]
+        cuda:
+          - { name: cpu,   tag: "",     pkg: "",      repo: "" }
+          - { name: cu118, tag: cu118,  pkg: "11-8",  repo: ubuntu2204 }
+          - { name: cu126, tag: cu126,  pkg: "12-6",  repo: ubuntu2404 }
+          - { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404 }
+          - { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404 }
+        exclude:
+          # CUDA wheel 只在 Linux 构建 (Windows 仅 CPU)
+          - os: windows-2022
+            cuda: { name: cu118, tag: cu118,  pkg: "11-8",  repo: ubuntu2204 }
+          - os: windows-2022
+            cuda: { name: cu126, tag: cu126,  pkg: "12-6",  repo: ubuntu2404 }
+          - os: windows-2022
+            cuda: { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404 }
+          - os: windows-2022
+            cuda: { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up CUDA toolchain ${{ matrix.cuda.name }}
+        if: runner.os == 'Linux' && matrix.cuda.name != 'cpu'
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/${{ matrix.cuda.repo }}/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cuda-nvcc-${{ matrix.cuda.pkg }} \
+               cuda-cudart-dev-${{ matrix.cuda.pkg }} libcublas-dev-${{ matrix.cuda.pkg }} \
+               || sudo apt-get install -y -qq cuda-toolkit-${{ matrix.cuda.pkg }}
+          NVCC=$(find /usr/local/cuda-*/bin -name nvcc 2>/dev/null | head -1)
+          echo "$(dirname "$NVCC")" >> "$GITHUB_PATH"
+
+      - name: Install build deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          python -m pip install --upgrade pip
+          pip install nanobind numpy scikit-build-core build
+
+      - name: Install build deps (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install nanobind numpy scikit-build-core build
+
+      - name: Build wheel (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          if [ "${{ matrix.cuda.name }}" = "cpu" ]; then
+            bash wheel.sh --no-cuda --outdir "dist/${{ matrix.cuda.name }}"
+          else
+            AXONO_CUDA_TAG=${{ matrix.cuda.tag }} \
+              bash wheel.sh --cuda --ignore-drivers --no-build-isolation \
+              --outdir "dist/${{ matrix.cuda.name }}"
+          fi
+        env:
+          PIP: python -m pip
+
+      - name: Build wheel (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\wheel.ps1 -NoCuda -OutDir "dist/cpu"
+
+      - name: Smoke test (CPU wheels only)
+        if: matrix.cuda.name == 'cpu'
+        run: |
+          pip install dist/cpu/axono-*.whl
+          python -c "import axono; print('import OK', axono.__version__)"
+
   cuda:
     name: CUDA tests (V100-class, cuBLAS)
     # CUDA runner 不可用时跳过, 不阻塞 PR
