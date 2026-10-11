@@ -111,7 +111,8 @@ jobs:
         with:
           cuda: ${{ matrix.cuda.local }}
           method: local
-          sub-packages: '["nvcc", "cudart", "cublas", "curand", "visual_studio_integration"]'
+          # 全量 toolkit: Windows installer 子包名与 Linux 不同,
+          # 指定 cublas/curand 子包会静默失败 (lib 未装上), 全装最稳
           log-file-suffix: '${{ matrix.cuda.name }}-py${{ matrix.python-version }}.txt'
 
       - name: Install build deps
