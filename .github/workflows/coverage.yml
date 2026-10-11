@@ -26,26 +26,19 @@ jobs:
     - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install nanobind numpy pytest pytest-cov scikit-build-core
+        pip install pytest pytest-cov
 
-    - name: Configure (CPU)
-      run: |
-        cmake -B build -DPython_EXECUTABLE=$(which python)
-
-    - name: Build
-      run: cmake --build build -j"$(nproc)"
-
-    - name: Locate extension and prepare package
-      run: |
-        SO=$(find build -name 'libaxono*.so' | head -1)
-        echo "Found extension: $SO"
-        mkdir -p axono/python/axono/library
-        cp "$SO" axono/python/axono/library/
+    - name: Build and install via install.sh
+      run: bash install.sh --no-cuda
 
     - name: Run Coverage Test
-      working-directory: axono/python
       run: |
-        PYTHONPATH=. python -m pytest tests --cov=axono --cov-branch --cov-report=xml --cov-report=term
+        # 仓库外运行: 统计 site-packages 中安装的 axono
+        TESTDIR=$(mktemp -d)
+        cp -r axono/python/tests "$TESTDIR"/
+        cd "$TESTDIR"
+        SITE=$(python -c "import axono, os; print(os.path.dirname(os.path.dirname(axono.__file__)))")
+        python -m pytest tests --cov="$SITE/axono" --cov-branch --cov-report=xml --cov-report=term
 
     - name: Upload Coverage Report
       uses: codecov/codecov-action@v5
