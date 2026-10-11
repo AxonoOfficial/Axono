@@ -84,9 +84,6 @@ jobs:
           - { name: cu126, tag: cu126,  pkg: "12-6",  repo: ubuntu2404, local: "12.6.3" }
           - { name: cu128, tag: cu128,  pkg: "12-8",  repo: ubuntu2404, local: "12.8.1" }
           - { name: cu130, tag: cu130,  pkg: "13-0",  repo: ubuntu2404, local: "13.0.1" }
-        exclude:
-          # 无需 exclude: Windows CUDA 用 Jimver/cuda-toolkit, Linux CUDA
-          # 用 apt; cu118 runner 由 runs-on 条件切到 ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
