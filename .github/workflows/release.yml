@@ -111,7 +111,7 @@ jobs:
         with:
           cuda: ${{ matrix.cuda.local }}
           method: local
-          sub-packages: '["nvcc", "visual_studio_integration"]'
+          sub-packages: '["nvcc", "cudart", "cublas", "curand", "visual_studio_integration"]'
           log-file-suffix: '${{ matrix.cuda.name }}-py${{ matrix.python-version }}.txt'
 
       - name: Install build deps
