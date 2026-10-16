@@ -9,10 +9,12 @@
 :root{
   --bg:#0a0a0a; --bg2:#111111; --fg:#f2f2f2; --muted:#8a8a8a;
   --line:#2a2a2a; --hover:#1a1a1a; --code-bg:#151515;
+  --accent:#7c8cff;
 }
 [data-theme="light"]{
   --bg:#ffffff; --bg2:#f6f6f6; --fg:#111111; --muted:#6b6b6b;
   --line:#e2e2e2; --hover:#efefef; --code-bg:#f2f2f2;
+  --accent:#3b4ee0;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -38,12 +40,15 @@ main .path{color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,mono
 main h2{font-size:14px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:40px 0 14px}
 .api{border:1px solid var(--line);border-radius:3px;padding:18px 20px;margin:14px 0;background:var(--bg)}
 .api .sig{font-family:ui-monospace,Menlo,monospace;font-size:13.5px;margin-bottom:10px;white-space:pre-wrap}
-.api .sig .k{color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-right:10px}
+.api .sig .k{color:var(--accent);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-right:10px}
 .api .doc{font-size:14px;white-space:pre-wrap;color:var(--fg)}
 .api.d2{margin-left:26px}
-pre.example{background:var(--code-bg);border:1px solid var(--line);border-radius:3px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;overflow-x:auto;margin:10px 0;line-height:1.6;white-space:pre}
+.modintro{white-space:pre-wrap;font-size:14.5px;color:var(--fg)}
+main a{color:var(--accent);border-bottom:1px solid transparent}
+main a:hover{border-color:var(--accent)}
+pre.example{background:var(--code-bg);border:1px solid var(--line);border-left:2px solid var(--accent);border-radius:3px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;overflow-x:auto;margin:12px 0;line-height:1.6;white-space:pre}
 code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}
-p code, .doc code{background:var(--code-bg);border:1px solid var(--line);border-radius:2px;padding:0 5px}
+p code, .doc code, .modintro code{background:var(--code-bg);border:1px solid var(--line);border-radius:2px;padding:0 5px;color:var(--accent)}
 .lead{font-size:15px;color:var(--muted);margin-bottom:26px}
 .home-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:10px}
 .home-cards a{border:1px solid var(--line);border-radius:3px;padding:16px 18px;display:block}
@@ -94,10 +99,16 @@ footer.site a:hover{color:var(--fg)}
 let DATA=null, CUR=null;
 
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}
-/* docstring 渲染: ``` 代码块 / 行内代码 */
+/* docstring 渲染: ``` 代码块 / reST "::" 缩进块 / 行内代码 */
 function renderDoc(s){
   s=esc(s||'');
   s=s.replace(/```[a-z]*\n([\s\S]*?)```/g,(m,c)=>`<pre class="example">${c.replace(/\n$/,'')}</pre>`);
+  // reST 风格: "标签::" 后跟 4 空格缩进块 → 代码框
+  s=s.replace(/(^|\n)([ \t]*[\u4e00-\u9fa5\w()\[\],.:·\- ]*::)\n\n((?:    [^\n]*(?:\n|$))+)/g,
+    (m,pre,label,block)=>{
+      const code=block.replace(/\n$/,'').split('\n').map(l=>l.startsWith('    ')?l.slice(4):l).join('\n');
+      return `${pre}${label}\n<pre class="example">${code}</pre>`;
+    });
   s=s.replace(/`([^`\n]+)`/g,'<code>$1</code>');
   return s;
 }
@@ -131,7 +142,7 @@ function apiBlock(f,kind,depth){
 }
 function renderMod(m){
   let h=`<h1>${esc(m.id)}</h1><div class="path">${esc(m.path)}</div>`;
-  if(m.doc) h+=`<div class="doc">${renderDoc(m.doc)}</div>`;
+  if(m.doc) h+=`<div class="modintro">${renderDoc(m.doc)}</div>`;
   if(m.functions.length){h+=`<h2>Functions</h2>`;for(const f of m.functions)h+=apiBlock(f,'def',0);}
   if(m.classes.length){
     h+=`<h2>Classes</h2>`;
