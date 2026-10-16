@@ -16,7 +16,23 @@ from .module import Module
 
 
 class Linear(Module):
-    """全连接层: y = x @ W^T + b (Kaiming 初始化)。"""
+    """全连接层: ``y = x @ W^T + b`` (Kaiming 初始化)。
+
+    FP16 模式: cast_linear_fp16() 后 weight 为 FLOAT16, matmul 走
+    cuBLASLt tensor core; 输入自动随 weight dtype 转换。
+
+    参数:
+        in_features: 输入维度 K
+        out_features: 输出维度 N
+        bias: 是否含偏置 (False 时 weight-only, 节省一次广播加法)
+        device: 参数所在设备, 缺省用全局默认设备
+
+    示例::
+
+        fc = nn.Linear(2048, 1024)          # W: (1024, 2048)
+        y = fc(x)                           # x: (B, 2048) → (B, 1024)
+        fc.cast_linear_fp16()               # 权重转 FP16 (省一半显存)
+    """
 
     def __init__(
         self,
@@ -105,7 +121,19 @@ class RMSNorm(Module):
 
 
 class Embedding(Module):
-    """查表 embedding: ids (INT64, 任意形状) -> (..., hidden)。"""
+    """查表 embedding: 输入 token id, 输出词向量。
+
+    参数:
+        num_embeddings: 词表大小 V
+        embedding_dim: 词向量维度 H
+        device: 参数所在设备, 缺省用全局默认设备
+
+    示例::
+
+        emb = nn.Embedding(151936, 2048)          # Qwen3 词表
+        ids = Tensor.from_numpy(np.array([[1, 5, 9]], dtype=np.int64))
+        h = emb(ids)                              # (1, 3, 2048)
+    """
 
     def __init__(
         self, num_embeddings: int, embedding_dim: int, device: str | None = None
@@ -122,6 +150,7 @@ class Embedding(Module):
         self.add_weight("weight", w)
 
     def forward(self, ids: Tensor) -> Tensor:
+        """ids (INT64, 任意形状) → (..., embedding_dim) 词向量。"""
         import axono
 
         return axono.embedding(ids, self._parameters["weight"])

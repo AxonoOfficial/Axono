@@ -26,10 +26,24 @@ from ..tensor import Tensor
 def matmul(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
     """矩阵乘法 result = a @ b (仅二维)。
 
-    参数:
-        out: 可选输出张量, 形状须为 (a.shape[0], b.shape[1])。
+    CPU 走 AVX 手写 kernel, CUDA 走 cuBLASLt (默认, 可
+    set_matmul_backend("cublas") 切经典 cuBLAS)。FP16 输入自动
+    走 tensor core。
 
-    全局 inplace 开关打开且未指定 out 时, 直接 a = a @ b 并返回 a。
+    参数:
+        a: (M, K) 左矩阵
+        b: (K, N) 右矩阵
+        out: 可选输出张量, 形状须为 (M, N), 结果写入 out (零分配)
+
+    返回:
+        Tensor: (M, N) 结果。全局 inplace 开关打开且未指定 out 时,
+        原地写 a 并返回 a。
+
+    示例::
+
+        y = axono.matmul(x, w)                 # 或 x @ w
+        buf = Tensor.zeros([M, N], device="cuda")
+        axono.matmul(x, w, out=buf)            # 复用输出缓冲
     """
     if out is None and is_inplace_enabled():
         _l.matmul_(a, b)

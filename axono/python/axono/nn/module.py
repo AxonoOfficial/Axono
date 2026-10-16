@@ -11,7 +11,30 @@ from ..core.tensor import DataType
 
 
 class Module:
-    """轻量 nn 模块基类: 管理参数字典并维护底层 C++ Module 同步。"""
+    """轻量 nn 模块基类 (torch.nn.Module 语义子集)。
+
+    纯 Python 管理参数, 底层 C++ Module 仅做权重容器同步 (供 CUDA
+    Graph 捕获与 libaxono 算子直接取权重)。
+
+    用法::
+
+        class MLP(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.fc1 = nn.Linear(2048, 1024)   # 自动注册子模块
+                self.fc2 = nn.Linear(1024, 2048)
+            def forward(self, x):
+                return self.fc2(axono.gelu(self.fc1(x)))
+
+        m = MLP()
+        m.to("cuda")                 # 迁移全部参数 (继承自 Module)
+        m.cast_linear_fp16()         # Linear 权重 FP16 常驻
+        y = m(x)
+
+    属性赋值自动注册: ``self.fc = SomeModule()`` → 子模块;
+    ``self.w = Tensor(...)`` → 参数; Module 列表 → 带索引子模块
+    (``layers.0``, ``layers.1``, ... 同 torch ModuleList)。
+    """
 
     def __init__(self):
         self._parameters: Dict[str, Tensor] = {}
@@ -92,6 +115,19 @@ class Module:
         值为 Tensor 时走设备间直拷 (一次 H2D/D2D), 避免经 numpy 中转;
         值为 memmap ndarray 时直接 copy_from_numpy (无 astype 转换, dtype
         必须一致 — fp16 .axm 会先显式转换)。
+
+        参数:
+            sd: {扁平参数名: Tensor 或 ndarray} — 扁平名以点号连接
+                (如 "layers.0.weight"); 键顺序无关
+            strict: True 时要求键完全匹配 (多余/缺失报错)
+
+        抛出:
+            KeyError: strict 模式下键不匹配
+
+        示例::
+
+            m.load_state_dict(torch_sd)          # 从转换脚本产出加载
+            m.load_state_dict(np.load("w.npz"))  # ndarray 亦可
         """
         import numpy as np
 
@@ -126,6 +162,12 @@ class Module:
 
         之后 Linear 前向自动走 fp16 tensor-core 混合路径 (输入输出仍是
         fp32, 内部 cast), 显存权重部分减半, gemm 提速。
+
+        示例::
+
+            m = MLP().to("cuda")
+            m.cast_linear_fp16()      # 全部 Linear 权重 → FP16
+            y = m(x)                  # 自动走 tensor core
         """
         from .layers import Linear  # 局部导入避免循环依赖
 

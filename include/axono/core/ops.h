@@ -12,9 +12,13 @@
 namespace axono {
 namespace core {
 
-// 算子函数签名: 接收输入 Tensor 列表, 返回输出 Tensor
+// 算子函数签名: 接收输入 Tensor 列表, 返回输出 Tensor。
+// 算子以名字字符串注册, Python 侧通过 libaxono 绑定按名调用。
 using OpFunction = std::function<Tensor(const std::vector<Tensor> &)>;
 
+// 全局算子注册表 (Meyers 单例): 名字 -> OpFunction。
+// register_op 注册 (通常由各算子文件的静态注册器完成),
+// run/op_names 供调试与动态分发使用。
 class OpRegistry {
  public:
   static OpRegistry &instance() {
@@ -33,7 +37,7 @@ class OpRegistry {
   const OpFunction &get_op(const std::string &name) const {
     auto it = ops_.find(name);
     if (it == ops_.end()) {
-      throw std::runtime_error("算子 " + name + " 不存在。");
+      throw std::runtime_error("op not registered: " + name);
     }
     return it->second;
   }

@@ -79,6 +79,9 @@ def extract_python(root: Path) -> list:
             funcs, classes = [], []
             for node in tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if (node.name.startswith("_") and node.name != "__init__"
+                            and not node.name.startswith("_tensor_")):
+                        continue
                     doc = ast.get_docstring(node)
                     if doc:
                         funcs.append({"name": node.name, "signature": _sig_of(node),
@@ -94,6 +97,14 @@ def extract_python(root: Path) -> list:
                     classes.append({"name": node.name, "doc": doc, "methods": methods})
             if not (mod_doc or funcs or classes):
                 continue
+            # Tensor 的便利方法以下划线 helper 形式实现再挂到绑定类上;
+            # 文档中还原为公开 API 名 (from_numpy / to / reshape ...)。
+            _rename = {"_tensor_to_device": "to", "_tensor_T": "T"}
+            for f in funcs:
+                if f["name"] in _rename:
+                    f["name"] = _rename[f["name"]]
+                elif f["name"].startswith("_tensor_"):
+                    f["name"] = f["name"][len("_tensor_"):]
             modname = rel.replace("axono/python/", "").replace("/", ".").removesuffix(".py")
             modules.append({"id": modname, "path": rel, "lang": "python",
                             "doc": mod_doc, "functions": funcs, "classes": classes})

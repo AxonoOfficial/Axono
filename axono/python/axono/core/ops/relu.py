@@ -41,6 +41,15 @@ def relu(x: Tensor, inplace: bool | None = None) -> Tensor:
 
 
 def relu_(x: Tensor) -> Tensor:
-    """真原地 ReLU: 直接修改并返回 x (零分配)。"""
+    """真原地 ReLU: 直接修改并返回 x (零分配)。
+
+    与 relu(x) 的区别: 不分配输出张量, 直接写回 x。显存敏感场景
+    (大 batch 推理) 用于省一次 x 大小的分配。
+
+    示例::
+
+        h = fc1(x)
+        axono.relu_(h)                         # h 已被截断为非负
+    """
     _l.relu_(x)
     return x

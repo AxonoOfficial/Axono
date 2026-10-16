@@ -51,7 +51,11 @@ import libaxono as _l
 
 
 class CUDAGraph:
-    """CUDA Graph 的 Python 包装 (无 CUDA 构建下实例化即报错)。"""
+    """CUDA Graph 的 Python 包装 (无 CUDA 构建下实例化即报错)。
+
+    完整生命周期: warmup 跑一次 → capture → 反复 replay。见模块级
+    docstring 的三步示例。
+    """
 
     def __init__(self) -> None:
         if not _l.cuda_available():
@@ -91,13 +95,25 @@ class CUDAGraph:
         self._output = self._outputs[0] if self._outputs else None
 
     def replay(self) -> CUDAGraph:
-        """回放已捕获的图 (CPU 端只发一次 launch)。"""
+        """回放已捕获的图 (CPU 端只发一次 launch)。
+
+        回放前把新输入数据写入静态输入缓冲 (copy_from_numpy / D2D);
+        回放后 outputs 指向的缓冲已是新结果。可无限次调用。
+
+        示例::
+
+            g.replay()                       # 每步推理只这一句
+            y = g.outputs[0]
+        """
         self._impl.replay()
         return self
 
     @property
     def output(self):
-        """捕获时 ``fn`` 的第一个返回值 (回放后其数据被原地更新)。"""
+        """捕获时 ``fn`` 的第一个返回值 (回放后其数据被原地更新)。
+
+        注意: 这是静态缓冲, 下一次回放会覆盖 — 需要保留请 clone。
+        """
         return getattr(self, "_output", None)
 
     @output.setter
@@ -133,7 +149,7 @@ class CUDAGraph:
 
     @property
     def num_nodes(self) -> int:
-        """图中 kernel 节点数。"""
+        """图中 kernel 节点数 (诊断用: 越多说明回放省的 launch 越多)。"""
         return self._impl.num_nodes
 
 

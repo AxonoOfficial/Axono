@@ -151,6 +151,24 @@ def compile(model, mode: str = "normal"):
     """编译模型 (torch.compile 风格)。
 
     mode="normal": CUDA Graph 捕获回放。首次调用 warmup+捕获, 之后每次
-    调用回放一张图 — CPU 提交开销从 O(算子数) 降到 O(1)。
+    调用回放一张图 — CPU 提交开销从 O(算子数) 降到 O(1), 小 batch 推理
+    常见 2~10x 端到端加速。
+
+    约束 (与 torch.compile 的 cudagraph 路线一致):
+    - 每次调用输入 shape/dtype/device 须一致, 变化时自动重新捕获;
+    - 输出是静态缓冲, 回放会被覆盖 — 需要保留请 clone;
+    - 非 Tensor 标量参数变化也会触发重捕; 仅 CUDA 可用。
+
+    参数:
+        model: nn.Module (forward 内算子须为 axono 算子)
+        mode: 目前仅 "normal"
+
+    返回:
+        CompiledModel: 可直接当原模型调用
+
+    示例::
+
+        m = axono.compile(model)     # 首次调用时 warmup + 捕获
+        y = m(x)                     # 之后每次调用 = 一次图回放
     """
     return CompiledModel(model, mode=mode)
