@@ -1,0 +1,53 @@
+name: Deploy Docs
+
+# PR 合并进 dev / main 后: 抽取源码注释 -> 部署到 axono.org/docs
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "include/**"
+      - "src/**"
+      - "axono/python/axono/**"
+      - "tools/gen_docs.py"
+      - "tools/docs_template.html"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-docs
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract docs from source comments
+        run: |
+          python3 tools/gen_docs.py . docs.json
+          python3 - <<'EOF'
+          import json
+          d = json.load(open('docs.json'))
+          assert d['modules'], 'no modules extracted'
+          print('modules:', len(d['modules']))
+          EOF
+
+      - name: Assemble docs site
+        run: |
+          mkdir -p site
+          cp tools/docs_template.html site/index.html
+          cp docs.json site/docs.json
+
+      - name: Upload to axono.org/docs
+        env:
+          AXONO_DOCS_KEY: ${{ secrets.AXONO_DOCS_KEY }}
+        run: |
+          tar czf docs.tgz -C site .
+          curl -sf --max-time 120 \
+            -H "Authorization: Bearer ${AXONO_DOCS_KEY}" \
+            -F "file=@docs.tgz" \
+            https://axono.org/api/docs_upload.php

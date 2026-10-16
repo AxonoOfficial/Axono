@@ -1,0 +1,51 @@
+name: Deploy Packages Page
+
+# Release 发布 (published) 后: 将 release 资产中的 wheel 上传至 axono.org/packages
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect release wheel assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p wheels
+          gh release view "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" --json assets \
+            --jq '.assets[] | select(.name | endswith(".whl") or endswith(".tar.gz")) | .name' \
+            > assets.txt
+          count=0
+          while read -r name; do
+            [ -z "$name" ] && continue
+            echo "downloading $name"
+            gh release download "${{ github.event.release.tag_name }}" \
+              --repo "${{ github.repository }}" \
+              --pattern "$name" --dir wheels
+            count=$((count+1))
+          done < assets.txt
+          echo "count=$count" >> "$GITHUB_ENV"
+          if [ "$count" -eq 0 ]; then
+            echo "No wheel/sdist assets found in release — skipping upload."
+          fi
+
+      - name: Upload to axono.org/packages
+        if: env.count != '0'
+        env:
+          AXONO_DOCS_KEY: ${{ secrets.AXONO_DOCS_KEY }}
+        run: |
+          set -e
+          for f in wheels/*; do
+            echo "uploading $(basename "$f")"
+            curl -sf --max-time 600 --retry 3 \
+              -H "Authorization: Bearer ${AXONO_DOCS_KEY}" \
+              -F "file=@$f" \
+              https://axono.org/api/upload.php
+          done

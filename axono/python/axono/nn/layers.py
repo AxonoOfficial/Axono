@@ -1,4 +1,12 @@
 # axono/nn/layers.py — v0.2
+"""神经网络层组件 (nn.Linear / nn.Embedding)。
+
+- ``Linear``: 全连接层 y = x @ W^T + b, Kaiming 初始化, bias 可选。
+- ``Embedding``: 词嵌入查表层。
+
+所有层继承 ``nn.Module``, 参数自动注册, 支持 ``load_state_dict`` /
+``state_dict`` 与 C++ 侧权重容器同步。
+"""
 from __future__ import annotations
 
 import numpy as np

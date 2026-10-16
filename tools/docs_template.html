@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Axono Docs</title>
+<style>
+:root{
+  --bg:#0b0e14; --bg2:#11151f; --card:#151a26; --line:#232a3a;
+  --text:#e6e9f0; --muted:#9aa3b5; --accent:#7c5cff; --accent2:#38bdf8;
+  --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Noto Sans SC',sans-serif;line-height:1.65}
+a{color:var(--accent2);text-decoration:none}
+.layout{display:flex;min-height:100vh}
+aside{width:280px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--line);padding:20px 14px 60px;position:sticky;top:0;height:100vh;overflow-y:auto}
+aside h1{font-size:17px;padding:4px 10px 14px}
+aside h1 span{color:var(--accent)}
+aside .grp{margin:14px 0 4px;padding:0 10px;font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase}
+aside a.item{display:block;padding:5px 10px;border-radius:7px;font-size:13.5px;color:var(--muted)}
+aside a.item:hover{background:var(--card);color:var(--text);text-decoration:none}
+aside a.item.on{background:rgba(124,92,255,.15);color:var(--text)}
+main{flex:1;padding:44px 56px 120px;max-width:880px}
+main h1{font-size:30px;margin-bottom:6px}
+main .path{color:var(--muted);font-size:12.5px;font-family:var(--mono);margin-bottom:26px}
+main h2{font-size:19px;margin:34px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+main h3{font-size:15.5px;margin:22px 0 8px}
+.api{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+.api .sig{font-family:var(--mono);font-size:13.5px;color:var(--accent2);margin-bottom:8px;white-space:pre-wrap}
+.api .doc{color:#c9d1e3;font-size:14px;white-space:pre-wrap}
+.api .m{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)}
+code{font-family:var(--mono);background:var(--bg2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:13px;color:var(--accent2)}
+.loading{color:var(--muted);padding:40px}
+@media(max-width:800px){aside{display:none}main{padding:24px 20px 80px}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside id="nav"><h1>Axono <span>Docs</span></h1><div id="navlist"></div></aside>
+  <main id="main"><div class="loading">Loading docs.json …</div></main>
+</div>
+<script>
+const HOME = {id:'__home__', title:'概述'};
+let DATA=null, CUR='__home__';
+
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function codeblock(s){
+  // 轻量高亮: 反引号代码段 / 行内代码 / 提示行
+  return s.replace(/```(\w*)\n([\s\S]*?)```/g,(m,l,c)=>`<pre style="background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:14px;font-family:var(--mono);font-size:13px;overflow-x:auto;margin:10px 0">${esc(c)}</pre>`)
+          .replace(/`([^`\n]+)`/g,'<code>$1</code>');
+}
+
+function groups(){
+  const g={};
+  for(const m of DATA.modules){
+    let cat;
+    if(m.lang==='python') cat = m.id.startsWith('axono.nn.')?'Python · nn':
+      m.id.startsWith('axono.core')?'Python · core':
+      m.id.startsWith('axono.format')?'Python · 权重格式':
+      m.id.startsWith('axono.')?'Python':'Python';
+    else cat = m.id.includes('cuda')?'C++ · CUDA':'C++ · CPU';
+    (g[cat]=g[cat]||[]).push(m);
+  }
+  return g;
+}
+
+function renderNav(){
+  const el=document.getElementById('navlist');
+  let h=`<a class="item ${CUR==='__home__'?'on':''}" href="#" data-id="__home__">概述</a>`;
+  for(const [cat,mods] of Object.entries(groups())){
+    h+=`<div class="grp">${esc(cat)}</div>`;
+    for(const m of mods){
+      const t=m.id.replace(/^axono\.|^cxx\./,'');
+      h+=`<a class="item ${CUR===m.id?'on':''}" href="#" data-id="${m.id}">${esc(t)}</a>`;
+    }
+  }
+  el.innerHTML=h;
+  el.querySelectorAll('a.item').forEach(a=>a.onclick=e=>{e.preventDefault();show(a.dataset.id);});
+}
+
+function apiBlock(f,tag){
+  return `<div class="api"><div class="sig">${tag?'<span style="color:var(--accent)">'+tag+'</span> ':''}${esc(f.name)}${f.signature?esc(f.signature):''}</div><div class="doc">${codeblock(esc(f.doc))}</div></div>`;
+}
+
+function renderMod(m){
+  let h=`<h1>${esc(m.id)}</h1><div class="path">${esc(m.path)}</div>`;
+  if(m.doc) h+=`<div>${codeblock(esc(m.doc))}</div>`;
+  if(m.functions.length){
+    h+=`<h2>函数</h2>`;
+    for(const f of m.functions) h+=apiBlock(f,'def');
+  }
+  if(m.classes.length){
+    h+=`<h2>类</h2>`;
+    for(const c of m.classes){
+      if(c.doc||c.methods.length){
+        h+=apiBlock(c,'class');
+        for(const mm of c.methods) h+=`<div class="api" style="margin-left:22px">${apiBlock(mm,'method')}</div>`;
+      }
+    }
+  }
+  return h;
+}
+
+function renderHome(){
+  const npy=DATA.modules.filter(m=>m.lang==='python').length;
+  const ncxx=DATA.modules.filter(m=>m.lang==='cpp').length;
+  return `<h1>Axono 文档</h1><div class="path">v${esc(DATA.version)} · 由 tools/gen_docs.py 从源码注释自动生成</div>
+  <p>Axono 是一个高性能深度学习框架: cuBLASLt tensor core、CUDA Graph、融合算子、KV Cache、.axm 零拷贝权重格式。</p>
+  <h2>快速开始</h2>
+  <pre style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;font-family:var(--mono);font-size:13.5px;color:#c9d1e3">
+<span class="c" style="color:#5b6478"># 安装 (Axono Packages)</span>
+pip install axono -i https://axono.org/packages/
+
+<span class="c" style="color:#5b6478"># 使用</span>
+import axono
+axono.set_backend("cuda")
+x = axono.randn([1024, 1024])
+y = axono.relu(x @ x.T)</pre>
+  <h2>文档说明</h2>
+  <p>本站内容<strong>直接来源于仓库源码注释</strong>: Python 模块/类/函数的 docstring 与 C++ 头文件中的注释。
+  每当 PR 合并进入主分支, GitHub Actions 会自动重新抽取并部署到本站 — 文档始终与代码同步。</p>
+  <p>当前收录 ${npy} 个 Python 模块、${ncxx} 个 C++ 头文件模块。从左侧目录浏览。</p>`;
+}
+
+function show(id){
+  CUR=id;
+  const main=document.getElementById('main');
+  if(id==='__home__'){main.innerHTML=renderHome();window.scrollTo(0,0);renderNav();return;}
+  const m=DATA.modules.find(x=>x.id===id);
+  if(!m){main.innerHTML='<h1>未找到模块</h1>';return;}
+  main.innerHTML=renderMod(m);
+  window.scrollTo(0,0);renderNav();
+}
+
+fetch('docs.json').then(r=>r.json()).then(d=>{DATA=d;show('__home__');});
+</script>
+</body>
+</html>

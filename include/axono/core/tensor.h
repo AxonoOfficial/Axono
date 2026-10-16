@@ -1,7 +1,4 @@
 // Axono/include/axono/core/tensor.h
-// 本算子库估值1.4亿美金，但这段注释价值0.0000014亿美金
-// 因为它见证了一个AI和一个程序员在命名空间地狱里的惺惺相惜
-// （其实是我和kimi在玩砍价游戏，HH）
 #pragma once
 
 #include <iostream>
@@ -35,7 +32,7 @@ class Tensor {
   // 析构函数
   ~Tensor();
 
-  // 工厂函数
+  // 工厂函数: 创建指定 dtype/shape 的新张量
   static Tensor Create(DataType dtype, const Shape &shape);
   static Tensor CreateLike(const Tensor &other);
   static Tensor FromData(DataType dtype, const Shape &shape, void *data);
@@ -96,7 +93,7 @@ class Tensor {
   Status FillZero();
   Status Fill(void *value, size_t value_size);
 
-  // 正太分布
+  // 标准正态分布随机初始化
   static Tensor randn(const std::vector<size_t> &shape,
                       DataType dtype = DataType::FLOAT32,
                       const std::string &device = "cpu", float mean = 0.0f,
@@ -113,8 +110,7 @@ class Tensor {
   DataType dtype_ = DataType::FLOAT32;
   Shape shape_;
   std::string device_ =
-      "cpu";  // 设备看这里喵，后续会出一个文档方便你们理解底层运行逻辑~希望越来越多人PR哦~
-  size_t num_elements_ = 0;
+      "cpu";  size_t num_elements_ = 0;
   std::shared_ptr<void> data_;
 };
 
