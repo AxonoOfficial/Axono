@@ -46,6 +46,13 @@ class KVCache:
         get(layer_idx) -> (k, v)                  返回该层完整 k/v (含新 token);
         reset() -> None                           清空 (新一轮对话);
         __len__() -> int                          当前缓存序列长度。
+
+    典型接入 (模型 forward 内)::
+
+        k, v = proj_kv(h)                      # 本层新 token 的 k/v
+        cache.update(layer_idx, k, v)
+        k_full, v_full = cache.get(layer_idx)  # 含全部历史
+        h = attention(q, k_full, v_full)
     """
 
     def update(self, layer_idx: int, k_new, v_new):  # pragma: no cover
@@ -67,6 +74,17 @@ class DynamicKVCache(KVCache):
     - k/v 形状约定 (seq, n_kv_head, d_head), 与模型 attention 一致;
     - 内部保存「已拼接结果」, 每步只做一次 concat (O(S) 拷贝, 无重复计算);
     - concat 是纯拷贝, 不改变数值 —— 与无 cache 逐位一致。
+
+    参数:
+        n_layers: decoder 层数 (每层独立 k/v)
+        device: 缓存所在设备, 缺省跟随新 token 的设备
+
+    示例::
+
+        cache = nn.DynamicKVCache(n_layers=28, device="cuda")
+        logits = model(ids, kv_cache=cache)    # prefill: 写入 prompt
+        logits = model(next_id, kv_cache=cache)  # decode: 只算新 token
+        cache.reset()                           # 新一轮对话
     """
 
     def __init__(self, n_layers: int, device: str | None = None):

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Axono Docs</title>
+<meta name="description" content="Axono API 文档 — 由源码注释自动生成。Tensor、nn 模块、CUDA Graph、融合算子、.axm 权重格式与 C++ 核心参考。">
+<style>
+:root{
+  --bg:#0a0a0a; --bg2:#111111; --fg:#f2f2f2; --muted:#8a8a8a;
+  --line:#2a2a2a; --hover:#1a1a1a; --code-bg:#151515;
+  --accent:#7c8cff;
+}
+[data-theme="light"]{
+  --bg:#ffffff; --bg2:#f6f6f6; --fg:#111111; --muted:#6b6b6b;
+  --line:#e2e2e2; --hover:#efefef; --code-bg:#f2f2f2;
+  --accent:#3b4ee0;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font-family:"Helvetica Neue",Helvetica,-apple-system,"Segoe UI","Noto Sans SC",sans-serif;line-height:1.7;font-size:15px;transition:background .2s,color .2s}
+a{color:inherit;text-decoration:none}
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;height:56px;padding:0 28px;background:var(--bg);border-bottom:1px solid var(--line)}
+.topbar .brand{font-size:15px;font-weight:700;letter-spacing:.04em}
+.topbar .brand em{font-style:normal;color:var(--muted);font-weight:400}
+.topbar .right{display:flex;align-items:center;gap:14px}
+.topbar a.navlink{font-size:13px;color:var(--muted)}
+.topbar a.navlink:hover{color:var(--fg)}
+#themeToggle{background:none;border:1px solid var(--line);color:var(--fg);font-size:12px;letter-spacing:.06em;padding:5px 14px;cursor:pointer;border-radius:2px}
+#themeToggle:hover{border-color:var(--fg)}
+.layout{display:flex;min-height:calc(100vh - 56px)}
+aside{width:272px;flex-shrink:0;border-right:1px solid var(--line);padding:26px 0 80px;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}
+aside .grp{margin:22px 0 6px;padding:0 26px;font-size:11px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+aside a.item{display:block;padding:6px 26px;font-size:13.5px;color:var(--muted)}
+aside a.item:hover{color:var(--fg);background:var(--hover)}
+aside a.item.on{color:var(--fg);border-left:2px solid var(--fg);padding-left:24px}
+main{flex:1;padding:52px 64px 140px;max-width:860px;min-width:0}
+main h1{font-size:28px;font-weight:700;letter-spacing:-.01em;margin-bottom:4px}
+main .path{color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,monospace;margin-bottom:34px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+main h2{font-size:14px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:40px 0 14px}
+.api{border:1px solid var(--line);border-radius:3px;padding:18px 20px;margin:14px 0;background:var(--bg)}
+.api .sig{font-family:ui-monospace,Menlo,monospace;font-size:13.5px;margin-bottom:10px;white-space:pre-wrap}
+.api .sig .k{color:var(--accent);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-right:10px}
+.api .doc{font-size:14px;white-space:pre-wrap;color:var(--fg)}
+.api.d2{margin-left:26px}
+.modintro{white-space:pre-wrap;font-size:14.5px;color:var(--fg)}
+main a{color:var(--accent);border-bottom:1px solid transparent}
+main a:hover{border-color:var(--accent)}
+pre.example{background:var(--code-bg);border:1px solid var(--line);border-left:2px solid var(--accent);border-radius:3px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;overflow-x:auto;margin:12px 0;line-height:1.6;white-space:pre}
+code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}
+p code, .doc code, .modintro code{background:var(--code-bg);border:1px solid var(--line);border-radius:2px;padding:0 5px;color:var(--accent)}
+.lead{font-size:15px;color:var(--muted);margin-bottom:26px}
+.home-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:10px}
+.home-cards a{border:1px solid var(--line);border-radius:3px;padding:16px 18px;display:block}
+.home-cards a:hover{border-color:var(--fg)}
+.home-cards .t{font-weight:600;font-size:14px;margin-bottom:4px}
+.home-cards .d{font-size:12.5px;color:var(--muted)}
+footer.site{border-top:1px solid var(--line);margin-top:60px;padding:26px 64px;font-size:12.5px;color:var(--muted);display:flex;gap:24px;flex-wrap:wrap}
+footer.site a:hover{color:var(--fg)}
+@media(max-width:820px){aside{display:none}main{padding:32px 22px 90px}footer.site{padding:22px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a class="brand" href="/docs/">Axono <em>Docs</em></a>
+  <div class="right">
+    <a class="navlink" href="/">首页</a>
+    <a class="navlink" href="/packages/">Packages</a>
+    <a class="navlink" href="https://github.com/AxonoOfficial/Axono">GitHub</a>
+    <button id="themeToggle" aria-label="切换主题"></button>
+  </div>
+</div>
+<div class="layout">
+  <aside><div id="navlist"></div></aside>
+  <main id="main"><div style="color:var(--muted);padding:40px 0">Loading…</div></main>
+</div>
+<footer class="site">
+  <span>© 2026 Axono</span>
+  <a href="/docs/">Docs</a><a href="/packages/">Packages</a>
+  <span>由 tools/gen_docs.py 从源码注释自动生成 · 随每次合并自动部署</span>
+</footer>
+<script>
+/* ---------- 主题 (localStorage key 与官网一致, 全站全局有效) ---------- */
+(function(){
+  const KEY='axono-theme';
+  const saved=localStorage.getItem(KEY);
+  const theme=(saved==='light'||saved==='dark')?saved:'dark';
+  document.documentElement.setAttribute('data-theme',theme);
+  const btn=document.getElementById('themeToggle');
+  function label(){btn.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'Light':'Dark';}
+  btn.onclick=function(){
+    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem(KEY,next);label();
+  };
+  label();
+})();
+
+let DATA=null, CUR=null;
+
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+/* docstring 渲染: ``` 代码块 / reST "::" 缩进块 / 行内代码 */
+function renderDoc(s){
+  s=esc(s||'');
+  s=s.replace(/```[a-z]*\n([\s\S]*?)```/g,(m,c)=>`<pre class="example">${c.replace(/\n$/,'')}</pre>`);
+  // reST 风格: "标签::" 后跟 4 空格缩进块 → 代码框
+  s=s.replace(/(^|\n)([ \t]*[\u4e00-\u9fa5\w()\[\],.:·\- ]*::)\n\n((?:    [^\n]*(?:\n|$))+)/g,
+    (m,pre,label,block)=>{
+      const code=block.replace(/\n$/,'').split('\n').map(l=>l.startsWith('    ')?l.slice(4):l).join('\n');
+      return `${pre}${label}\n<pre class="example">${code}</pre>`;
+    });
+  s=s.replace(/`([^`\n]+)`/g,'<code>$1</code>');
+  return s;
+}
+function groups(){
+  const g={};
+  for(const m of DATA.modules){
+    let cat;
+    if(m.lang==='cpp') cat = m.id.includes('cuda')?'C++ · CUDA':'C++ · CPU';
+    else if(m.id.startsWith('axono.nn.')) cat='Python · nn';
+    else if(m.id.startsWith('axono.core')) cat='Python · core';
+    else if(m.id.startsWith('axono.format')) cat='Python · 权重格式';
+    else cat='Python';
+    (g[cat]=g[cat]||[]).push(m);
+  }
+  return g;
+}
+function renderNav(){
+  const el=document.getElementById('navlist');
+  let h=`<a class="item ${CUR===null?'on':''}" href="/docs/">概述</a>`;
+  for(const [cat,mods] of Object.entries(groups())){
+    h+=`<div class="grp">${esc(cat)}</div>`;
+    for(const m of mods){
+      const t=m.id.replace(/^axono\.|^cxx\./,'');
+      h+=`<a class="item ${CUR===m.id?'on':''}" href="/docs/${m.id}/">${esc(t)}</a>`;
+    }
+  }
+  el.innerHTML=h;
+}
+function apiBlock(f,kind,depth){
+  return `<div class="api ${depth?'d2':''}"><div class="sig"><span class="k">${kind}</span>${esc(f.name)}${f.signature?esc(f.signature):''}</div><div class="doc">${renderDoc(f.doc)}</div></div>`;
+}
+function renderMod(m){
+  let h=`<h1>${esc(m.id)}</h1><div class="path">${esc(m.path)}</div>`;
+  if(m.doc) h+=`<div class="modintro">${renderDoc(m.doc)}</div>`;
+  if(m.functions.length){h+=`<h2>Functions</h2>`;for(const f of m.functions)h+=apiBlock(f,'def',0);}
+  if(m.classes.length){
+    h+=`<h2>Classes</h2>`;
+    for(const c of m.classes){
+      if(c.doc||c.methods.length){
+        h+=apiBlock(c,'class',0);
+        for(const mm of c.methods) h+=apiBlock(mm,'method',1);
+      }
+    }
+  }
+  return h;
+}
+function renderHome(){
+  const npy=DATA.modules.filter(m=>m.lang==='python').length;
+  const ncxx=DATA.modules.filter(m=>m.lang==='cpp').length;
+  let cards='';
+  for(const m of DATA.modules.filter(m=>m.lang==='python')){
+    const t=m.id.replace(/^axono\./,'');
+    cards+=`<a href="/docs/${m.id}/"><div class="t">${esc(t)}</div><div class="d">${esc((m.doc||'').split('\n')[0].slice(0,60))}</div></a>`;
+  }
+  return `<h1>Axono 文档</h1>
+  <div class="path">v${esc(DATA.version)} · ${npy} Python 模块 · ${ncxx} C++ 头文件</div>
+  <p class="lead">内容直接来源于仓库源码注释, 每次合并自动重新抽取并部署 — 文档始终与代码同步。</p>
+  <h2>快速开始</h2>
+  <pre class="example">pip install axono -i https://axono.org/packages/
+
+import axono
+axono.set_backend("cuda")
+x = axono.randn([1024, 1024])
+y = axono.relu(x @ x.T)</pre>
+  <h2>API 参考</h2>
+  <div class="home-cards">${cards}</div>`;
+}
+function show(id,push){
+  CUR=id;
+  const main=document.getElementById('main');
+  main.innerHTML = id? renderMod(DATA.modules.find(x=>x.id===id)||{id:id,doc:'未找到',functions:[],classes:[],path:''})
+                     : renderHome();
+  document.title = id ? id+' · Axono Docs' : 'Axono Docs';
+  renderNav();
+  if(push) history.pushState({},'', id?'/docs/'+id+'/':'/docs/');
+  window.scrollTo(0,0);
+}
+/* SPA 内跳转 /docs/<id>/ 走 pushState; 直链由伪静态 rewrite 命中 /docs/index.html */
+document.addEventListener('click',e=>{
+  const a=e.target.closest('a');if(!a)return;
+  const href=a.getAttribute('href')||'';
+  const m=href.match(/^\/docs\/(?:([\w.]+)\/?)?$/);
+  if(m){e.preventDefault();show(m[1]||null,true);}
+});
+window.addEventListener('popstate',()=>show(pathId(),false));
+function pathId(){const m=location.pathname.match(/^\/docs\/([\w.]+)\/?$/);return m?m[1]:null;}
+
+fetch('/docs/docs.json').then(r=>r.json()).then(d=>{DATA=d;show(pathId(),false);});
+</script>
+</body>
+</html>

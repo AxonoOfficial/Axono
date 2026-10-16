@@ -50,6 +50,19 @@ def add(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
 
     全局 inplace 开关 (axono.set_inplace_enabled(True)) 打开时,
     若未指定 out 且 a/b 同形同设备同类型, 直接原地 a += b 并返回 a。
+
+    参数:
+        a: (M, K) 或与 b 同形
+        b: 与 a 同形, 或 (K,) 一维 (沿行广播)
+        out: 可选输出张量, 给定后零分配写入
+
+    返回:
+        Tensor: 结果 (可能为 a 自身 — inplace 时)
+
+    示例::
+
+        y = axono.add(h, bias)                 # bias (K,) 广播到每行
+        y = a + b                              # 运算符等价
     """
     same_shape = a.shape == b.shape
     broadcast = len(a.shape) == 2 and len(b.shape) == 1 and a.shape[1] == b.shape[0]

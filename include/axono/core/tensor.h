@@ -1,7 +1,4 @@
 // Axono/include/axono/core/tensor.h
-// 本算子库估值1.4亿美金，但这段注释价值0.0000014亿美金
-// 因为它见证了一个AI和一个程序员在命名空间地狱里的惺惺相惜
-// （其实是我和kimi在玩砍价游戏，HH）
 #pragma once
 
 #include <iostream>
@@ -15,28 +12,38 @@
 namespace axono {
 namespace core {
 
+// Tensor — Axono 核心张量类。
+//
+// 一块 [dtype + shape + device + 引用计数的存储] 的最小封装:
+// - dtype:  FLOAT16 / FLOAT32 / FLOAT64 / INT8..64 / BOOLEAN
+// - device: "cpu" 或 "cuda" / "cuda:<id>" (字符串承载, 便于扩展)
+// - storage: shared_ptr<void> 统一管理 host / device 内存, 拷贝即共享
+//
+// 内存布局: C 连续 (row-major), 无 stride/视图机制 — 争取零开销。
+// 跨设备: to()/to_() 走 H2D/D2D; CopyFrom() 设备间自动中转。
 class Tensor {
  public:
-  // 构造函数
+  // 构造: 空 / 仅 dtype / dtype+shape / dtype+shape+device / 外部裸指针
   Tensor();
   explicit Tensor(DataType dtype);
   Tensor(DataType dtype, const Shape &shape);
   Tensor(DataType dtype, const Shape &shape, const std::string &device);
   Tensor(DataType dtype, const Shape &shape, void *data);
 
-  // 拷贝构造函数和赋值操作符
+  // 拷贝 = 共享 storage (引用计数, 零数据拷贝), 传参零开销
   Tensor(const Tensor &other);
   Tensor &operator=(const Tensor &other);
 
-  // 移动构造函数和赋值操作符
+  // 移动 = 接管 storage, 原张量置空
   Tensor(Tensor &&other) noexcept;
   Tensor &operator=(Tensor &&other) noexcept;
 
   // 析构函数
   ~Tensor();
 
-  // 工厂函数
+  // 工厂函数: 创建指定 dtype/shape 的新张量 (分配并清零存储)
   static Tensor Create(DataType dtype, const Shape &shape);
+  // 同 dtype/shape/device 复制一个空壳 (分配新存储)
   static Tensor CreateLike(const Tensor &other);
   static Tensor FromData(DataType dtype, const Shape &shape, void *data);
   // 借用外部内存 (不拥有, 析构不释放) — 调用方须保证数据存活期覆盖 Tensor。
@@ -44,7 +51,8 @@ class Tensor {
   static Tensor FromBorrowed(DataType dtype, const Shape &shape,
                              const void *data);
 
-  // 基本信息
+  // ---- 基本信息 ----
+  // 设备字符串 ("cpu" / "cuda:0"); dtype / shape / 元素数 / 字节数
   const std::string &device() const { return device_; }
   bool is_cuda() const { return device_.substr(0, 4) == "cuda"; }
   DataType dtype() const { return dtype_; }
@@ -54,7 +62,8 @@ class Tensor {
   size_t num_bytes() const { return num_elements_ * GetDataTypeSize(dtype_); }
   bool is_contiguous() const { return true; }  // TODO
 
-  // 数据访问
+  // ---- 数据访问 ----
+  // data<T>(): 按类型取底层指针 (host 或 device 指针, 视设备而定)
   template <typename T>
   T *data() {
     if (is_cuda()) {
@@ -76,27 +85,29 @@ class Tensor {
   Tensor to(const std::string &target_device) const;
   Status to_(const std::string &target_device);
 
-  // 从另一张量拷贝数据 (设备间自动中转), 元素数须一致
+  // 从另一张量拷贝数据, 元素数须一致。设备间自动中转:
+  // cpu→cuda / cuda→cpu 走 H2D/D2D, cuda→cuda 走 D2D。原地语义。
   Status CopyFrom(const Tensor &src);
 
-  // 类型转换 (返回新 Tensor, 同设备)。支持 FLOAT16<->FLOAT32 及标量互转。
+  // dtype 类型转换 (返回新 Tensor, 同设备)。
+  // 支持 FLOAT16<->FLOAT32 及各标量互转; FP16 常驻推理的关键入口。
   Tensor CastTo(DataType target) const;
 
   // 初始化数据存储 (按 dtype/shape/device 分配并清零)
   void InitializeStorage();
 
-  // 形状操作
+  // 形状操作 (均要求元素总数不变; Reshape 失败返回非 OK Status)
   Status Reshape(const Shape &new_shape);
   Status Resize(const Shape &new_shape);
 
-  // Transpose
+  // 转置: 交换两个维度 (默认最后两维, 2D 即 a.T)
   Tensor Transpose(int dim0 = -2, int dim1 = -1);
 
-  // 填充操作
+  // 填充: 全 0 / 指定值 (按 value_size 字节模式)
   Status FillZero();
   Status Fill(void *value, size_t value_size);
 
-  // 正太分布
+  // 标准正态分布随机初始化
   static Tensor randn(const std::vector<size_t> &shape,
                       DataType dtype = DataType::FLOAT32,
                       const std::string &device = "cpu", float mean = 0.0f,
@@ -113,8 +124,7 @@ class Tensor {
   DataType dtype_ = DataType::FLOAT32;
   Shape shape_;
   std::string device_ =
-      "cpu";  // 设备看这里喵，后续会出一个文档方便你们理解底层运行逻辑~希望越来越多人PR哦~
-  size_t num_elements_ = 0;
+      "cpu";  size_t num_elements_ = 0;
   std::shared_ptr<void> data_;
 };
 

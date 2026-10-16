@@ -20,82 +20,162 @@ from ..tensor import Tensor  # noqa: F401 — 供类型提示 (绑定类, Pyrigh
 
 
 def neg(x):  # noqa: ANN001 — x: Tensor
-    """-x"""
+    """逐元素取负 -x。
+
+    示例::
+
+        y = axono.neg(x)                       # 或 -x
+    """
     return _l.neg(x)
 
 
 def abs(x):  # noqa: A001 — 与 torch.abs 同名
-    """逐元素绝对值"""
+    """逐元素绝对值 |x|。
+
+    示例::
+
+        y = axono.abs(x)                       # 或 abs(x)
+    """
     return _l.abs(x)
 
 
 def exp(x):
-    """逐元素自然指数 e^x"""
+    """逐元素自然指数 e^x。
+
+    示例::
+
+        e = axono.exp(x)                       # softmax 手工实现的一步
+    """
     return _l.exp(x)
 
 
 def log(x):
-    """逐元素自然对数 ln(x) (x<=0 时为 -inf/nan, 与 torch 一致)"""
+    """逐元素自然对数 ln(x) (x<=0 时为 -inf/nan, 与 torch 一致)。
+
+    示例::
+
+        l = axono.log(p + 1e-12)               # 交叉熵手工实现
+    """
     return _l.log(x)
 
 
 def sqrt(x):
-    """逐元素平方根"""
+    """逐元素平方根。
+
+    示例::
+
+        s = axono.sqrt(x + 1e-12)              # RMS 手工计算
+    """
     return _l.sqrt(x)
 
 
 def sigmoid(x):
-    """Sigmoid 激活 1/(1+e^-x)"""
+    """Sigmoid 激活 1/(1+e^-x)。
+
+    示例::
+
+        p = axono.sigmoid(logits)              # 二分类概率
+    """
     return _l.sigmoid(x)
 
 
 def tanh(x):
-    """双曲正切"""
+    """双曲正切 tanh(x)。
+
+    示例::
+
+        g = axono.tanh(x)                      # GRU/经典 RNN 门控
+    """
     return _l.tanh(x)
 
 
 def sin(x):
-    """逐元素正弦"""
+    """逐元素正弦。
+
+    示例::
+
+        pos = axono.sin(freqs * positions)     # 经典正弦位置编码
+    """
     return _l.sin(x)
 
 
 def cos(x):
-    """逐元素余弦"""
+    """逐元素余弦。
+
+    示例::
+
+        pos = axono.cos(freqs * positions)
+    """
     return _l.cos(x)
 
 
 def rsqrt(x):
-    """逐元素平方根倒数 1/sqrt(x)"""
+    """逐元素平方根倒数 1/sqrt(x)。
+
+    示例::
+
+        inv = axono.rsqrt(mean_sq + eps)       # RMSNorm 内部一步
+    """
     return _l.rsqrt(x)
 
 
 def square(x):
-    """逐元素平方 x*x"""
+    """逐元素平方 x*x。
+
+    示例::
+
+        ms = axono.square(x)                   # mean(x^2) 的一步
+    """
     return _l.square(x)
 
 
 def reciprocal(x):
-    """逐元素倒数 1/x"""
+    """逐元素倒数 1/x (x=0 处为 inf, 与 IEEE 一致)。
+
+    示例::
+
+        inv = axono.reciprocal(scale)
+    """
     return _l.reciprocal(x)
 
 
 def sign(x):
-    """逐元素符号 (-1/0/1)"""
+    """逐元素符号 (-1 / 0 / 1)。
+
+    示例::
+
+        s = axono.sign(x)
+    """
     return _l.sign(x)
 
 
 def floor(x):
-    """逐元素向下取整"""
+    """逐元素向下取整。
+
+    示例::
+
+        n = axono.floor(x)
+    """
     return _l.floor(x)
 
 
 def ceil(x):
-    """逐元素向上取整"""
+    """逐元素向上取整。
+
+    示例::
+
+        n = axono.ceil(x)
+    """
     return _l.ceil(x)
 
 
 def round(x):  # noqa: A001 — 与内置 round 同名, 模块内导出
-    """逐元素四舍五入 (half away from zero, 与 torch.round 一致)"""
+    """逐元素四舍五入 (half away from zero, 与 torch.round 一致)。
+
+    示例::
+
+        n = axono.round(x)
+    """
     return _l.round(x)
 
 

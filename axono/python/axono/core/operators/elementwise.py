@@ -39,22 +39,43 @@ def _binary(a, b, name, fn, out):  # noqa: ANN001
 
 
 def sub(a, b, out=None):  # noqa: ANN001
-    """逐元素减法 a - b (同形)。"""
+    """逐元素减法 a - b (同形)。
+
+    示例::
+
+        y = axono.sub(a, b)                    # 或 a - b
+        axono.sub(a, b, out=buf)               # 复用输出缓冲
+    """
     return _binary(a, b, "sub", _l.sub, out)
 
 
 def mul(a, b, out=None):  # noqa: ANN001
-    """逐元素乘法 a * b (同形)。"""
+    """逐元素乘法 a * b (同形)。
+
+    示例::
+
+        y = axono.mul(a, b)                    # 或 a * b
+    """
     return _binary(a, b, "mul", _l.mul, out)
 
 
 def div(a, b, out=None):  # noqa: ANN001
-    """逐元素除法 a / b (同形, b=0 时为 inf/nan, 与 torch 一致)。"""
+    """逐元素除法 a / b (同形, b=0 时为 inf/nan, 与 torch 一致)。
+
+    示例::
+
+        y = axono.div(a, b)                    # 或 a / b
+    """
     return _binary(a, b, "div", _l.div, out)
 
 
 def pow(a, b, out=None):  # noqa: ANN001 — 与内置 pow 同名, 模块内导出
-    """逐元素幂 a ** b (同形)。"""
+    """逐元素幂 a ** b (同形)。
+
+    示例::
+
+        y = axono.pow(a, 2)                    # 或 a ** 2
+    """
     return _binary(a, b, "pow", _l.pow, out)
 
 

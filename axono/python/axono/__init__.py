@@ -10,7 +10,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Axono - High Performance Computing Library
+Axono — 高性能深度学习推理框架。
+
+自研 C++/CUDA 核心 + nanobind 绑定: cuBLASLt tensor core、CUDAGraph
+捕获回放、融合算子、原生 GQA 解码、零拷贝 .axm 权重格式。
+
+快速上手::
+
+    import numpy as np
+    import axono
+    from axono import nn, Tensor
+
+    axono.set_backend("cuda")                 # 全局切 GPU (或 "cpu")
+
+    class MLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc1 = nn.Linear(2048, 1024)
+            self.fc2 = nn.Linear(1024, 2048)
+        def forward(self, x):
+            return self.fc2(axono.gelu(self.fc1(x)))
+
+    m = MLP().to("cuda")
+    x = Tensor.from_numpy(np.random.rand(8, 2048).astype(np.float32)).to("cuda")
+    y = m(x)                                  # (8, 2048)
+
+推理加速::
+
+    m = axono.compile(m)                      # CUDA Graph 编译 (torch 风格)
+    m.cast_linear_fp16()                      # Linear 权重 FP16 常驻
+
+文档: https://axono.org/docs/   源码: https://github.com/AxonoOfficial/Axono
 """
 
 from . import nn  # noqa: E402  — from axono import nn / nn.Linear 风格

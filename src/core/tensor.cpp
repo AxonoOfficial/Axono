@@ -39,8 +39,7 @@ Tensor::Tensor(DataType dtype, const Shape &shape)
 }
 
 Tensor::Tensor(DataType dtype, const Shape &shape,
-               const std::string &device)  // 设备在这里喵
-    : dtype_(dtype), shape_(shape), device_(device) {
+               const std::string &device)    : dtype_(dtype), shape_(shape), device_(device) {
   num_elements_ = CalculateNumElements(shape_);
   InitializeStorage();
 }
@@ -237,7 +236,7 @@ void Tensor::InitializeStorage() {
 Status Tensor::Reshape(const Shape &new_shape) {
   size_t new_num_elements = CalculateNumElements(new_shape);
   if (new_num_elements != num_elements_) {
-    throw std::runtime_error("喵！Reshape要求形状相同的喵！");
+    throw std::runtime_error("Reshape requires the same element count");
   }
   shape_ = new_shape;
   return Status::OK;

@@ -37,7 +37,17 @@ _VALID_BACKENDS = ("cpu", "cuda")
 
 
 def set_backend(device: str) -> None:
-    """设置全局后端/默认设备 ("cpu" | "cuda" | "cuda:<id>")。"""
+    """设置全局后端/默认设备 ("cpu" | "cuda" | "cuda:<id>")。
+
+    与 set_default_device 等价; CUDA 不可用的构建上切 cuda 会抛
+    RuntimeError。
+
+    示例::
+
+        axono.set_backend("cuda")     # 全局上卡
+        axono.set_backend("cuda:1")   # 多卡指定卡号
+        axono.set_backend("cpu")      # 切回 CPU
+    """
     from .tensor import set_default_device
 
     if not isinstance(device, str) or not device:
@@ -51,7 +61,13 @@ def set_backend(device: str) -> None:
 
 
 def get_backend() -> str:
-    """返回当前全局后端 ("cpu" / "cuda" / "cuda:<id>")。"""
+    """返回当前全局后端 ("cpu" / "cuda" / "cuda:<id>")。
+
+    示例::
+
+        axono.set_backend("cuda")
+        assert axono.get_backend() == "cuda"
+    """
     from .tensor import get_default_device
 
     return get_default_device()
@@ -62,6 +78,11 @@ def set_matmul_backend(name: str) -> None:
 
     cuBLASLt 使用启发式算法选择, 大尺寸通常更快; 经典 cuBLAS 更稳定。
     两者结果一致, 仅性能特征不同; 非 float/double 输入一律走自写 kernel。
+
+    示例::
+
+        axono.set_matmul_backend("cublaslt")   # 默认
+        axono.set_matmul_backend("cublas")     # 切换后新 matmul 生效
     """
     if not _l.cuda_available():
         raise RuntimeError("当前构建未启用 CUDA")
