@@ -24,7 +24,7 @@ Axono 是一个轻量级的人工智能算法库，旨在为教学、研究与�
   - `Tensor.cast_to()` 类型转换（含 float16 ↔ float32，CPU/CUDA）
 - `axono.nn` 模块系统：
   - `nn.Linear / nn.Embedding / nn.LayerNorm / nn.RMSNorm` 等
-  - `nn.compile(model)` 计算图优化
+  - `axono.compile(model)` CUDA Graph 捕获与回放（仅 CUDA）
   - `state_dict / load_state_dict`（支持 memmap 零拷贝加载）
   - `Module.cast_linear_fp16()` 一键 FP16 混合推理（tensor core，权重显存减半）
 - 常用算子（`axono.core.ops` / `axono.core.operators`）：
@@ -108,8 +108,9 @@ class MLP(nn.Module):
         return self.fc2(axono.gelu(self.fc1(x)))
 
 
+axono.set_backend("cuda")  # 在 CUDA 上创建模型参数
 model = MLP()
-# model.compile()           # 计算图优化 (可选)
+# model = axono.compile(model)  # CUDA Graph 捕获与回放 (可选，仅 CUDA)
 # model.cast_linear_fp16()  # FP16 混合推理 (可选, 权重显存减半)
 ```
 

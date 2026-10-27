@@ -26,8 +26,8 @@ class Module:
             def forward(self, x):
                 return self.fc2(axono.gelu(self.fc1(x)))
 
+        axono.set_backend("cuda")    # 在构造模型前设置默认设备
         m = MLP()
-        m.to("cuda")                 # 迁移全部参数 (继承自 Module)
         m.cast_linear_fp16()         # Linear 权重 FP16 常驻
         y = m(x)
 
@@ -165,7 +165,8 @@ class Module:
 
         示例::
 
-            m = MLP().to("cuda")
+            axono.set_backend("cuda")
+            m = MLP()
             m.cast_linear_fp16()      # 全部 Linear 权重 → FP16
             y = m(x)                  # 自动走 tensor core
         """

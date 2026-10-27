@@ -31,7 +31,7 @@ Axono — 高性能深度学习推理框架。
         def forward(self, x):
             return self.fc2(axono.gelu(self.fc1(x)))
 
-    m = MLP().to("cuda")
+    m = MLP()                                # 使用上面设置的 CUDA 默认设备
     x = Tensor.from_numpy(np.random.rand(8, 2048).astype(np.float32)).to("cuda")
     y = m(x)                                  # (8, 2048)
 
