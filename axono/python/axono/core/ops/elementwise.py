@@ -54,7 +54,8 @@ def log(x):
 
     示例::
 
-        l = axono.log(p + 1e-12)               # 交叉熵手工实现
+        eps = Tensor.full(p.shape, 1e-12, dtype=p.dtype, device=p.device)
+        l = axono.log(p + eps)
     """
     return _l.log(x)
 
@@ -64,7 +65,8 @@ def sqrt(x):
 
     示例::
 
-        s = axono.sqrt(x + 1e-12)              # RMS 手工计算
+        eps = Tensor.full(x.shape, 1e-12, dtype=x.dtype, device=x.device)
+        s = axono.sqrt(x + eps)
     """
     return _l.sqrt(x)
 
@@ -114,7 +116,8 @@ def rsqrt(x):
 
     示例::
 
-        inv = axono.rsqrt(mean_sq + eps)       # RMSNorm 内部一步
+        eps = Tensor.full(mean_sq.shape, 1e-5, dtype=mean_sq.dtype, device=mean_sq.device)
+        inv = axono.rsqrt(mean_sq + eps)
     """
     return _l.rsqrt(x)
 
@@ -170,7 +173,7 @@ def ceil(x):
 
 
 def round(x):  # noqa: A001 — 与内置 round 同名, 模块内导出
-    """逐元素四舍五入 (half away from zero, 与 torch.round 一致)。
+    """逐元素取最近整数, 恰好一半时远离零 (half away from zero)。
 
     示例::
 

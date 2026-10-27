@@ -1,6 +1,6 @@
 ### 用途 USAGE
 
 > #### CPU ONLY
-> 本文件夹用于 `Core` 中 的 `Tensor` 的实现类函数
+> 本目录实现 CPU 张量内存操作与转置函数。通用 `Tensor` 类实现见 [`../../tensor.cpp`](../../tensor.cpp)。
 > 
-> FOR Functions Of `CORE.Tensor`
+> CPU tensor memory and transpose function implementations.

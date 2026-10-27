@@ -11,7 +11,8 @@
 # limitations under the License.
 """Qwen3-VL Module 版端到端数值验证 (vs HF transformers)。
 
-用法: PYTHONPATH=../.. python -m examples.vlm.qwen3vl.run_e2e --device cuda
+先按 README 将 examples 复制到独立目录，在该目录运行:
+    python -m examples.vlm.qwen3vl.run_e2e --device cuda --model /path/to/qwen3vl-2b
 """
 
 from __future__ import annotations

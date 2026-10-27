@@ -1,18 +1,23 @@
 <#
 .SYNOPSIS
-  Axono Windows wheel builder (source build -> pip wheel -> .whl in dist\).
+  Axono Windows wheel builder (source build -> pip wheel).
 
 .EXAMPLE
   .\wheel.ps1                                # auto-detect CUDA
   .\wheel.ps1 -Cuda                          # force CUDA (error if incompatible)
   .\wheel.ps1 -NoCuda                        # force CPU
   .\wheel.ps1 -Cuda -IgnoreDrivers           # CUDA: only require nvcc (CI / no-GPU build machine)
-  .\wheel.ps1 -NoCuda -OutDir C:\tmp\wheels  # extra args are passed to `pip wheel`
+  .\wheel.ps1 -NoCuda -OutDir dist            # write wheels to dist\
+
+  # Install the Axono wheel produced in dist\ (keep one matching wheel there):
+  python -m pip install (Get-Item .\dist\axono-*.whl).FullName
 
 .NOTES
   Requires: Python 3.10+ with pip, Visual Studio Build Tools (C++),
-  and for CUDA builds: CUDA Toolkit (nvcc). Building CUDA does NOT
-  require a GPU/driver — only the machine installing the wheel does.
+  and for CUDA builds: CUDA Toolkit (nvcc). Output defaults to the repository
+  root; use -OutDir to select another directory. -Cuda -IgnoreDrivers builds
+  without a GPU/driver. Running CUDA wheels requires compatible CUDA runtime
+  libraries, a driver and a GPU.
 #>
 [CmdletBinding()]
 param(

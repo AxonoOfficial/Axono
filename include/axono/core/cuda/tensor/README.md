@@ -1,6 +1,6 @@
 ### 用途 USAGE
 
 > #### CUDA ONLY
-> 本文件夹用于 `Core` 中 的 `Tensor` 的类声明
+> 本目录声明 CUDA 张量内存操作、类型转换与转置函数。通用 `Tensor` 类声明见 [`../../tensor.h`](../../tensor.h)。
 > 
-> FOR Class Statements Of `Core.tensor`
+> CUDA tensor memory, type conversion, and transpose function declarations.

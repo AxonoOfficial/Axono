@@ -9,7 +9,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""core.operators.matmul — CPU 走 AVX kernel, CUDA 走 cuBLAS。
+"""core.operators.matmul — CPU 使用可选 BLAS 或内置 kernel, CUDA 使用 cuBLAS(Lt)。
 
 重构要点:
 - 无 from_raw 包装;
@@ -26,9 +26,9 @@ from ..tensor import Tensor
 def matmul(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
     """矩阵乘法 result = a @ b (仅二维)。
 
-    CPU 走 AVX 手写 kernel, CUDA 走 cuBLASLt (默认, 可
-    set_matmul_backend("cublas") 切经典 cuBLAS)。FP16 输入自动
-    走 tensor core。
+    CPU 的 FLOAT32/FLOAT64 优先使用构建时找到的 BLAS, 无 BLAS 时回退
+    内置 kernel。CUDA 默认优先 cuBLASLt; FLOAT32/FLOAT64 可通过
+    set_matmul_backend("cublas") 选择经典 cuBLAS, FLOAT16 当前需要 cuBLASLt。
 
     参数:
         a: (M, K) 左矩阵

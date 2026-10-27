@@ -11,8 +11,8 @@
 # limitations under the License.
 """Qwen3-VL-2B 前向性能对比: Axono vs HuggingFace transformers。
 
-用法:
-    PYTHONPATH=. python -m examples.vlm.qwen3vl.benchmark_torch \
+先按 README 将 examples 复制到独立目录，在该目录运行:
+    python -m examples.vlm.qwen3vl.benchmark_torch \
         --device cuda --model /path/to/Qwen3-VL-2B-Instruct
 
 分别测 Axono 与 torch 的单次全前向 (视觉塔 + 文本塔 + lm_head),

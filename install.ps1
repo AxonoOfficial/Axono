@@ -6,12 +6,12 @@
   .\install.ps1                       # auto-detect CUDA
   .\install.ps1 -Cuda                 # force CUDA (error if incompatible)
   .\install.ps1 -NoCuda               # force CPU
-  .\install.ps1 -Cuda -IgnoreDrivers  # CUDA: only require nvcc (CI / no-GPU build machine)
 
 .NOTES
   Requires: Python 3.10+ with pip, Visual Studio Build Tools (C++),
   and for CUDA builds: CUDA Toolkit (nvcc) on PATH or in the standard
-  install directory. Building CUDA does NOT require a GPU/driver.
+  install directory. For a build machine without a GPU/driver, use:
+    .\wheel.ps1 -Cuda -IgnoreDrivers -OutDir dist
 #>
 [CmdletBinding()]
 param(

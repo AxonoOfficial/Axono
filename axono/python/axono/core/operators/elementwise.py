@@ -11,7 +11,8 @@
 # limitations under the License.
 """二元逐元素算子: sub/mul/div (同形, CPU/CUDA 后端自动分派)。
 
-与 add 同风格: 非原地保证输入不变; out= 走 into 路径 (零额外分配)。
+输入须为同形、同 dtype、同设备的 Tensor, 不支持 Python 标量广播。
+非原地保证输入不变; out= 先计算临时结果, 再复制到指定输出张量。
 """
 
 import libaxono as _l
@@ -70,11 +71,13 @@ def div(a, b, out=None):  # noqa: ANN001
 
 
 def pow(a, b, out=None):  # noqa: ANN001 — 与内置 pow 同名, 模块内导出
-    """逐元素幂 a ** b (同形)。
+    """逐元素幂, 输入为两个同形 Tensor。
 
     示例::
 
-        y = axono.pow(a, 2)                    # 或 a ** 2
+        exponent = Tensor.full(a.shape, 2, dtype=a.dtype, device=a.device)
+        y = axono.pow(a, exponent)
+        squared = axono.square(a)             # 平方也可用专用算子
     """
     return _binary(a, b, "pow", _l.pow, out)
 

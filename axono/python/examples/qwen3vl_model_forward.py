@@ -15,7 +15,8 @@
 加载 HF safetensors 权重, 与 Function 风格 (examples/qwen3vl_*_forward.py)
 等价: 从像素/文本输入一路跑到 logits。
 
-用法: PYTHONPATH=. python examples/qwen3vl_model_forward.py --device cpu|cuda
+先按 README 将 examples 复制到独立目录，在该目录运行:
+    python -m examples.qwen3vl_model_forward --device cpu --model /path/to/qwen3vl-2b
 """
 
 from __future__ import annotations

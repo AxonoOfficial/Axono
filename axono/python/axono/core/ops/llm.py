@@ -33,12 +33,12 @@ def softmax(x):
 def log_softmax(x):
     """沿最后一维的 log_softmax (= x - logsumexp(x))。
 
-    数值上比先 softmax 再取 log 更稳定; 训练 loss 常用。
+    数值上比先 softmax 再取 log 更稳定, 可用于计算对数概率。
 
     示例::
 
-        logp = axono.log_softmax(logits)
-        nll = -logp[target]                    # 单点负对数似然
+        logp = axono.log_softmax(logits)        # logits: (batch, vocab) FLOAT32
+        nll = -logp.to_numpy()[0, target]       # 首个样本的目标负对数似然
     """
     return _l.log_softmax(x)
 
@@ -58,8 +58,7 @@ def gelu(x):
 def gelu_tanh(x):
     """GELU 激活 (tanh 近似式): 0.5*x*(1+tanh(sqrt(2/pi)(x+0.044715x^3)))。
 
-    torch.nn.functional.gelu(approximate="tanh") 同款; 大多数 LLM
-    (LLaMA/Qwen) 配置使用近似式。
+    对应 torch.nn.functional.gelu(approximate="tanh")。
 
     示例::
 
@@ -113,8 +112,8 @@ def rms_norm(x, weight, eps: float = 1e-5):
 def linear(x, weight, bias):
     """单算子融合 Linear: ``x @ weight.T + bias``。
 
-    x: (m, k); weight: (out_f, k); bias: (out_f,)。
-    CPU 走 cblas, CUDA 走 cuBLAS(Lt), 单次提交。
+    x: (..., k); weight: (out_f, k); bias: (out_f,)。
+    CPU 优先使用可选 BLAS, 否则使用内置实现; CUDA 使用 cuBLAS(Lt) 路径。
     """
     return _l.linear(x, weight, bias)
 
