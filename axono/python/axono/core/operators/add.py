@@ -13,7 +13,7 @@
 
 重构要点:
 - 全部走 libaxono 绑定, 无 from_raw 中间包装;
-- 支持 out= 指定输出 (真 into, 零额外分配);
+- 同形输入支持 out= 指定输出 (真 into, 零额外分配);
 - 全局 inplace 开关打开且支持时自动原地 (add_);
 - 非 inplace 路径保证输入不被修改 (纯函数语义)。
 """
@@ -45,8 +45,8 @@ def add(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
     - a 与 b 同形: 逐元素相加 (CPU/CUDA 后端原生);
     - a 为二维 (M, K) 且 b 为一维 (K,): 沿行广播 (Linear bias 场景)。
 
-    参数:
-        out: 可选输出张量 (形状须与结果一致)。给定后零分配写入 out。
+    out 仅用于同形输入。广播路径当前忽略 out, 分配并返回新结果;
+    CUDA 广播还会通过 NumPy 创建展开后的临时张量。
 
     全局 inplace 开关 (axono.set_inplace_enabled(True)) 打开时,
     若未指定 out 且 a/b 同形同设备同类型, 直接原地 a += b 并返回 a。
@@ -54,10 +54,10 @@ def add(a: Tensor, b: Tensor, out: Tensor | None = None) -> Tensor:
     参数:
         a: (M, K) 或与 b 同形
         b: 与 a 同形, 或 (K,) 一维 (沿行广播)
-        out: 可选输出张量, 给定后零分配写入
+        out: 同形输入时的可选输出张量, shape/dtype/device 须与输入一致
 
     返回:
-        Tensor: 结果 (可能为 a 自身 — inplace 时)
+        Tensor: 同形 out 路径返回 out; inplace 时返回 a; 其他路径返回新张量
 
     示例::
 

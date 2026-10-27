@@ -14,19 +14,19 @@
 mode="normal": CUDA Graph 捕获回放 — 首次调用 warmup + 捕获整个 forward,
 之后每次调用只回放一张图 (CPU 提交开销 O(算子数) → O(1))。
 
-用法 (与 torch.compile 一致)::
+用法::
 
     model = axono.compile(model, mode="normal")
     y = model(x)          # 第一次: warmup + 捕获 (稍慢)
     y = model(x)          # 之后: 图回放 (快)
 
-语义与约束 (与 torch.compile 的 cudagraph 路线一致):
-- 输入张量的 shape/dtype/device 每次调用须一致; 变化时自动重新捕获;
-- 输入数据在回放前被原地拷入捕获时的静态输入缓冲;
-- 输出是捕获时的静态缓冲, 下一次回放会原地覆盖 — 需要保留请自行 clone;
-- 非 Tensor 参数 (bool/int/str) 每次调用必须相同, 否则重新捕获;
-- 仅 CUDA 设备可用; CPU 输入自动迁到 CUDA (编译目标设备);
-- mode 只支持 "normal" (后续可扩展 reduce-overhead / max-autotune)。
+语义与约束:
+- 按输入张量的 shape/dtype/device 和非 Tensor 参数缓存图; 新签名首次调用时捕获;
+- 首次调用的输入张量作为静态缓冲; 后续同签名调用会把新输入原地拷入这些张量;
+- 输出是静态缓冲, 下一次回放会覆盖; 可用 y.to_numpy().copy() 保存独立的 CPU 数组;
+- 模型参数和输入须提前放在同一 CUDA 设备上, 不会自动迁移 CPU 输入;
+- 捕获体须使用可捕获的 CUDA 算子, 不能做设备同步; CPU/NumPy 计算不会随图回放;
+- mode 只支持 "normal"。
 """
 
 from __future__ import annotations
@@ -150,14 +150,14 @@ class CompiledModel:
 def compile(model, mode: str = "normal"):
     """编译模型 (torch.compile 风格)。
 
-    mode="normal": CUDA Graph 捕获回放。首次调用 warmup+捕获, 之后每次
-    调用回放一张图 — CPU 提交开销从 O(算子数) 降到 O(1), 小 batch 推理
-    常见 2~10x 端到端加速。
+    mode="normal": CUDA Graph 捕获回放。新输入签名首次调用时预热并捕获,
+    之后回放缓存的图, 减少逐个提交 CUDA 算子的开销。实际收益取决于模型和设备。
 
-    约束 (与 torch.compile 的 cudagraph 路线一致):
-    - 每次调用输入 shape/dtype/device 须一致, 变化时自动重新捕获;
-    - 输出是静态缓冲, 回放会被覆盖 — 需要保留请 clone;
-    - 非 Tensor 标量参数变化也会触发重捕; 仅 CUDA 可用。
+    约束:
+    - 按输入 shape/dtype/device 和非 Tensor 参数缓存图;
+    - 首次输入张量会被复用, 后续同签名调用会原地写入新输入;
+    - 输出会被后续回放覆盖; 可用 y.to_numpy().copy() 保存独立的 CPU 数组;
+    - 仅 CUDA 可用, 模型参数和输入须提前放在同一 CUDA 设备上。
 
     参数:
         model: nn.Module (forward 内算子须为 axono 算子)

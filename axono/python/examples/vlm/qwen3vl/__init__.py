@@ -9,12 +9,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Qwen3-VL-2B on Axono: nn.Module 模型 + 完整对话 + benchmark。
+"""Qwen3-VL-2B on Axono: nn.Module 模型 + 单轮图文问答 + benchmark。
 
-用法:
-    PYTHONPATH=. python -m examples.vlm.qwen3vl.run_e2e --device cuda
-    PYTHONPATH=. python -m examples.vlm.qwen3vl.chat --device cuda --model /path
-    PYTHONPATH=. python -m examples.vlm.qwen3vl.benchmark_torch --device cuda
+先按 README 将 examples 复制到独立目录，在该目录运行:
+    python -m examples.vlm.qwen3vl.run_e2e --device cuda --model /path/to/qwen3vl-2b
+    python -m examples.vlm.qwen3vl.chat --device cuda --model /path/to/qwen3vl-2b --image /path/to/img.jpg
+    python -m examples.vlm.qwen3vl.benchmark_torch --device cuda --model /path/to/qwen3vl-2b
 """
 
 from .chat import Qwen3VLChat  # noqa: F401

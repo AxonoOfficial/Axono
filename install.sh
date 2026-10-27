@@ -5,8 +5,8 @@
 #   bash install.sh                 # 自动检测: 有兼容 CUDA 环境则启用 CUDA
 #   bash install.sh --cuda          # 强制启用 CUDA (无兼容环境则报错退出)
 #   bash install.sh --no-cuda       # 强制纯 CPU
-#   bash install.sh --cuda --ignore-drivers  # 强制 CUDA 且只查 nvcc,
-#                                   # 不要求本机有驱动/GPU (CI 编译用)
+# 无驱动/GPU 的编译机请改用 wheel 脚本:
+#   bash wheel.sh --cuda --ignore-drivers --outdir dist
 #
 # 可选环境变量:
 #   CMAKE_BUILD_PARALLEL_LEVEL=N    # 编译并行度 (默认取 nproc)
@@ -24,7 +24,6 @@ for arg in "$@"; do
     --cuda)    FORCE_CUDA=1 ;;
     --no-cuda) FORCE_CPU=1 ;;
     --ignore-drivers) IGNORE_DRIVERS=1 ;;
-    # --cuda 为强制构建模式: 仅要求 nvcc (编译不需 GPU; 运行时才需要卡)
     -h|--help)
       sed -n '2,12p' "$0"; exit 0 ;;
     *)
@@ -71,7 +70,7 @@ detect_cuda() {
   driver_ver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
   [ -n "$driver_ver" ] || { echo "no-driver"; return 1; }
 
-  # ③ GPU 存在且驱动版本满足该 nvcc (仅自动检测模式要求; 强制构建跳过)
+  # ③ 驱动支持的 CUDA 主版本不低于 nvcc 主版本
   local driver_cuda
   driver_cuda=$(nvidia-smi | grep -oE 'CUDA Version: [0-9]+\.[0-9]+' | head -1 | grep -oE '[0-9]+\.[0-9]+')
   [ -n "$driver_cuda" ] || { echo "no-driver-cuda"; return 1; }
@@ -82,8 +81,7 @@ detect_cuda() {
   if [ "$driver_major" -lt "$nvcc_major" ]; then
     echo "driver-too-old($driver_cuda < nvcc $nvcc_ver)"; return 1
   fi
-  # 自动检测模式: 有 GPU 才编 CUDA (强制 --cuda 模式跳过 GPU 检查,
-  # 编译本身不需要 GPU — 供 CI 容器打 CUDA wheel 用)
+  # 自动检测模式额外检查 GPU 名称
   if [ "$FORCE_CUDA" != "1" ] && \
      ! nvidia-smi --query-gpu=name --format=csv,noheader | grep -q .; then
     echo "no-gpu"; return 1

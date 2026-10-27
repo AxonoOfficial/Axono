@@ -45,8 +45,8 @@ _DEFAULT_DEVICE = "cpu"
 def set_default_device(device: str) -> None:
     """设定全局默认设备。
 
-    之后所有新建张量 (randn/zeros/ones/from_numpy) 与算子输出自动落在
-    该设备上; 已有张量不受影响, 需用 tensor.to() 显式迁移。
+    Tensor.randn/zeros/ones/full 未指定 device 时, 以及 Tensor.from_numpy
+    创建的张量使用该设备。已有张量不受影响; 算子输出跟随输入设备。
 
     参数:
         device: "cpu" | "cuda" | "cuda:<id>" (如 "cuda:0" / "cuda:1")
@@ -55,7 +55,7 @@ def set_default_device(device: str) -> None:
 
         import axono
         axono.set_default_device("cuda")   # 全局切到 GPU
-        x = axono.randn([1024, 1024])      # x 已在 cuda:0 上
+        x = axono.Tensor.randn([1024, 1024])  # 使用默认 CUDA 设备
 
         axono.set_default_device("cuda:1") # 多卡时指定卡号
     """
@@ -109,13 +109,15 @@ def _tensor_from_numpy(cls, array: np.ndarray) -> "Tensor":
     """从 numpy 数组创建 Tensor (拷贝数据)。
 
     非 C 连续数组自动 ascontiguousarray; 不支持的 dtype 自动转 float32。
-    若已设置非 cpu 默认设备, 创建后自动迁移过去。
+    若已设置非 cpu 默认设备, 创建后自动迁移过去。当前不支持零维数组。
+    float16 数组请先转 float32 再 cast_to(FLOAT16), 或使用 from_numpy_ref;
+    直接 from_numpy(float16_array) 当前不能正确复制浮点位模式。
 
     参数:
-        array: numpy ndarray (任意 shape)
+        array: 至少一维的 numpy ndarray
 
     返回:
-        Tensor: dtype/shape 与源数组一致, 位于默认设备上
+        Tensor: shape 与源数组一致, 位于默认设备上; 不支持的 dtype 转 FLOAT32
 
     示例::
 
@@ -146,19 +148,20 @@ def _tensor_from_numpy_ref(array: np.ndarray) -> "Tensor":
     返回的 Tensor 直接引用 array 的内存 (不复制), 适合 mmap 权重加载:
     memmap → ref Tensor → to(cuda) 一步 DMA, 省去 host 中转拷贝。
 
-    生命周期: nanobind keep_alive 使 Tensor 持有 array 引用, 源数组
-    存活期内 Tensor 有效; 写入该 Tensor 会改写源数组 (共享内存)。
+    返回的 Tensor 保持源数组存活, 但其浅拷贝不会继承这层 Python 引用。
+    派生浅拷贝仍在使用时, 请保留源数组。仅可向可写源数组写入;
+    只读 memmap 借用的 Tensor 只能用于读取或复制。
 
     参数:
-        array: numpy ndarray / memmap, 须 C 连续 fp32 / int64
-               (fp16 memmap 内部以 uint16 视图零拷贝借用)
+        array: C 连续的 float32 / float16 / int64 numpy ndarray 或 memmap
+               (float16 内部以 uint16 视图借用)
 
     返回:
         Tensor: 位于 cpu, 与 array 共享存储
 
     示例::
 
-        w = np.memmap("model.axm", dtype=np.float32, mode="r", offset=..., shape=...)
+        w = np.ones((4, 8), dtype=np.float32)
         t = Tensor.from_numpy_ref(w)      # 零拷贝
         g = t.to("cuda")                  # 一步 DMA 上卡
     """
@@ -200,9 +203,9 @@ def _tensor_to_device(self, device: str) -> "Tensor":
 def _tensor_cast_to(self, target: "DataType") -> "Tensor":
     """dtype 类型转换 (返回新 Tensor)。
 
-    支持 FLOAT16<->FLOAT32 及各标量类型互转; 同 dtype 时返回浅拷贝
-    (共享 storage)。典型用途: FP16 推理前把 FP32 权重转 FP16 常驻,
-    显存减半且 Linear 自动走 tensor core。
+    CPU/CUDA 支持 FLOAT16 与 FLOAT32 互转, CPU 另支持 INT8 转 FLOAT32。
+    同 dtype 时返回浅拷贝 (共享 storage); 其他转换尚未支持。
+    FP16 权重占用为 FP32 的一半, CUDA Linear 可通过混合精度路径使用。
 
     参数:
         target: 目标 DataType (axono.DataType.FLOAT16 / FLOAT32 / ...)
@@ -219,19 +222,22 @@ def _tensor_cast_to(self, target: "DataType") -> "Tensor":
 
 
 def _tensor_to_numpy(self) -> np.ndarray:
-    """导出张量数据为 numpy 视图 (零拷贝, 直接映射底层 storage)。
+    """导出张量数据为 numpy 数组。
 
-    返回的数组与张量共享内存: 修改一方另一方可见。CUDA 张量请先
-    to("cpu") 再导出。
+    CPU 返回共享内存视图, 修改一方另一方可见; 使用视图期间不要 resize
+    或原地迁移原 Tensor。CUDA 自动拷回主机, 返回独立数组, 修改它不影响原 Tensor。
+    FLOAT16 当前返回 int16 原始位模式, 需 .view(np.float16) 解释为浮点数。
 
     返回:
-        np.ndarray: dtype 与张量一致
+        np.ndarray: 除 FLOAT16 使用 int16 位模式外, dtype 与张量一致
 
     示例::
 
-        x = Tensor.randn([2, 3])
+        x = Tensor.randn([2, 3], device="cpu")
         print(x.to_numpy().shape)      # (2, 3)
         x.to_numpy()[:] = 0            # 原地清零 (同时作用于张量)
+        h = x.cast_to(DataType.FLOAT16)
+        values = h.to_numpy().view(np.float16)
     """
     name = _DTYPE_TO_ACCESSOR.get(self.dtype)
     if name is None:
@@ -401,7 +407,7 @@ def _tensor_randn(
     mean: float = 0.0,
     stddev: float = 1.0,
 ) -> "Tensor":
-    """创建标准 (可指定均值/方差) 正态分布随机张量。
+    """创建正态分布随机张量 (可指定均值与标准差)。
 
     参数:
         shape: 目标 shape

@@ -9,15 +9,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Qwen3-VL-2B 完整对话 (多模态) — 基于 Axono nn.Module 前向。
+"""Qwen3-VL-2B 单轮图文问答 — 基于 Axono nn.Module 前向。
 
 用 HF AutoProcessor 做 chat template 与图像预处理, 前向/生成全部走 Axono。
+每次问答需要图片, 不保留多轮历史。先按 README 将 examples 复制到独立目录后运行。
 
 交互式:
-    PYTHONPATH=. python -m examples.vlm.qwen3vl.chat --device cuda --model /path/to/Qwen3-VL-2B-Instruct
+    python -m examples.vlm.qwen3vl.chat --device cuda \
+        --model /path/to/Qwen3-VL-2B-Instruct --image /path/to/img.jpg
 
 单次:
-    PYTHONPATH=. python -m examples.vlm.qwen3vl.chat --device cuda --model /path \
+    python -m examples.vlm.qwen3vl.chat --device cuda --model /path/to/Qwen3-VL-2B-Instruct \
         --prompt "描述这张图片" --image /path/to/img.jpg
 """
 

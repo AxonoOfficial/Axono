@@ -11,16 +11,17 @@
 # limitations under the License.
 """HF safetensors 权重 → Axono .axm 格式转换脚本。
 
-用法::
+先按 README 将 examples 复制到独立目录，在该目录运行::
 
     python -m examples.vlm.qwen3vl.convert \
-        --model /root/autodl-tmp/qwen3vl-2b \
-        [--dtype float32|float16] [--out model.axm]
+        --model /path/to/qwen3vl-2b
 
 - 键名转成 Axono 模型的扁平参数名 (model.visual.* / model.language_model.*);
 - patch_embed.proj.weight 按模型要求 reshape (out, 3*patch*patch);
 - 默认输出 <model_dir>/model.axm;
 - 可选 --dtype float16 减半文件体积 (加载时转回 fp32)。
+- 可选 --out /path/to/model.axm 指定输出文件;
+- 当前读取单文件 model.safetensors, 不支持分片权重索引。
 """
 
 import argparse

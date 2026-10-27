@@ -12,8 +12,8 @@
 """Qwen3-VL-2B 文本前向 (纯 Axono 算子): 加载 safetensors 权重,
 跑 prefill + greedy 解码, 对比 transformers 参考 logits。
 
-用法: PYTHONPATH=. python examples/qwen3vl_text_forward.py \
-        --model /root/autodl-tmp/qwen3vl-2b --device cuda
+先按 README 将 examples 复制到独立目录，在该目录运行:
+    python -m examples.qwen3vl_text_forward --model /path/to/qwen3vl-2b --device cuda
 """
 
 from __future__ import annotations

@@ -14,7 +14,7 @@
 用法::
 
     import axono
-    axono.set_backend("cuda")        # 全局切到 GPU (等价 set_default_device("cuda"))
+    axono.set_backend("cuda")        # 将张量工厂的默认设备设为 CUDA
     axono.get_backend()              # -> "cuda"
     axono.set_backend("cpu")         # 切回 CPU
     axono.set_backend("cuda:1")      # 指定 GPU 编号
@@ -24,8 +24,9 @@
     axono.set_matmul_backend("cublas")    # 经典 cuBLAS
 
 说明:
-- set_backend 与 set_default_device 是同一开关的两个名字; 新建张量
-  (randn/zeros/ones/from_numpy) 与算子输出自动落在新后端上。
+- set_backend 更新 set_default_device 管理的默认设备, 并额外检查后端名与 CUDA 构建支持。
+- Tensor.randn/zeros/ones/full 未指定 device 时, 以及 Tensor.from_numpy
+  创建的张量使用默认设备。算子输出跟随输入设备。
 - 已有张量可用 tensor.to("cuda") 显式迁移; 本模块不做隐式迁移。
 """
 
@@ -39,12 +40,12 @@ _VALID_BACKENDS = ("cpu", "cuda")
 def set_backend(device: str) -> None:
     """设置全局后端/默认设备 ("cpu" | "cuda" | "cuda:<id>")。
 
-    与 set_default_device 等价; CUDA 不可用的构建上切 cuda 会抛
-    RuntimeError。
+    更新张量工厂的默认设备, 不迁移已有张量或模型。未启用 CUDA
+    的构建上选择 cuda 会抛 RuntimeError; 此检查不确认驱动或 GPU 可用。
 
     示例::
 
-        axono.set_backend("cuda")     # 全局上卡
+        axono.set_backend("cuda")     # 后续张量工厂默认使用 CUDA
         axono.set_backend("cuda:1")   # 多卡指定卡号
         axono.set_backend("cpu")      # 切回 CPU
     """
@@ -76,8 +77,9 @@ def get_backend() -> str:
 def set_matmul_backend(name: str) -> None:
     """设置 CUDA matmul 底层实现 ("cublaslt" | "cublas")。
 
-    cuBLASLt 使用启发式算法选择, 大尺寸通常更快; 经典 cuBLAS 更稳定。
-    两者结果一致, 仅性能特征不同; 非 float/double 输入一律走自写 kernel。
+    FLOAT32/FLOAT64 可选 cuBLASLt 或经典 cuBLAS; cuBLASLt 失败时回退经典路径。
+    FLOAT16 matmul 当前需要 cuBLASLt, INT32 使用内置 kernel。
+    性能和浮点误差取决于设备、形状及所选算法。
 
     示例::
 

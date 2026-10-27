@@ -12,9 +12,8 @@
 """Axono 原生权重格式 (.axm)。
 
 单文件容器: 自定义头 + 张量索引 + 连续原始字节段。设计目标:
-- 加载走 numpy memmap 零拷贝映射 (不做 dtype/格式转换链),
-  加载耗时 ≈ 文件读取 + H2D 拷贝本身;
-- 支持任意 numpy dtype (默认 fp32, 转换时可选 fp16 减半体积);
+- 加载走 numpy memmap 映射, 张量数据在访问时按需读取;
+- 保存 ndarray 的原始字节, 默认保留输入 dtype, 可选转换为 fp16;
 - 索引为 JSON, 可流式读取单个张量。
 
 布局::
@@ -24,7 +23,7 @@
     offset 6   : 保留 (2B)
     offset 8   : 索引长度 uint64
     offset 16  : 索引 JSON (utf-8)
-    offset 16+L: 张量数据 (连续, 64 字节对齐)
+    offset align_up(16+L, 64): 张量数据 (每个张量起点 64 字节对齐)
 
 索引 JSON: {"tensors": [{"name", "dtype", "shape", "offset", "size"}],
             "meta": {...}}
@@ -56,22 +55,25 @@ def save_axm(
 ) -> None:
     """把 {name: ndarray} 写入 .axm 文件。
 
-    布局: 24B 头 (AXM1 magic + 版本 + 索引长度) + JSON 索引 +
-    64B 对齐的连续原始字节段。解析只需一次 json.loads, 比框架
-    pickle/safetensors 路径快一个量级。
+    布局: 16B 头 (AXM1 magic + 版本 + 索引长度) + JSON 索引 +
+    64B 对齐的连续原始字节段。
 
     参数:
-        state_dict: {张量名: ndarray} (nn.Module.state_dict() 直接可用)
+        state_dict: {张量名: ndarray}; Module.state_dict() 的 Tensor 值须先
+            转为 ndarray, 并跳过 None。不要直接传入 Tensor 或 object 数组。
         path: 输出 .axm 路径
         meta: 任意元信息 (写入索引 JSON, 如模型配置)
         dtype: 可选统一转换 ("float32"/"float16"/np.dtype);
-               None = 保留原 dtype。转 fp16 体积减半。
+               None = 保留原 dtype。float32 转 float16 后张量数据字节数减半。
 
     示例::
 
+        from axono import nn
         from axono.format import save_axm
-        save_axm(model.state_dict(), "model.axm", meta={"config": cfg},
-                 dtype="float16")
+        model = nn.Linear(64, 128, device="cpu")  # FP32 参数
+        sd = {name: t.to_numpy() for name, t in model.state_dict().items()
+              if t is not None}
+        save_axm(sd, "model.axm", dtype="float16")
     """
     entries = []
     data_off = 0
@@ -136,21 +138,23 @@ def read_axm_index(path: str):
 def load_axm(path: str, mmap: bool = True) -> dict:
     """加载整个 .axm → {name: ndarray (memmap 视图)}。
 
-    mmap=True 时零拷贝映射, 不触发实际读取 (首次访问按页调入);
-    内存充足时可直接用 (读取由 OS page cache 承担)。
+    mmap=True 时读取头和索引, 张量数据通过只读 memmap 按需访问。
+    当前 mmap=False 分支未实现有效的非映射加载; 如需独立 ndarray,
+    请对默认加载结果逐个调用 copy()。
 
     参数:
         path: .axm 文件路径
-        mmap: True (默认) 返回 np.memmap 视图; False 返回实体 ndarray
+        mmap: 当前请保留 True (默认), 返回只读 np.memmap 视图
 
     返回:
-        dict: {张量名: ndarray}
+        dict: {张量名: np.memmap}
 
     示例::
 
         from axono.format import load_axm
-        sd = load_axm("model.axm")             # 零拷贝
-        model.load_state_dict(sd)              # Tensor 化 + 上卡
+        sd = load_axm("model.axm")             # 映射张量数据
+        model.load_state_dict(sd)              # 拷贝到已有的 FLOAT32 参数
+        arrays = {name: arr.copy() for name, arr in load_axm("model.axm").items()}
     """
     idx, data_start = read_axm_index(path)
     mode = "r" if mmap else None
@@ -194,12 +198,12 @@ class AxmReader:
     def get(self, name: str) -> np.ndarray:
         """读取单个张量 (memmap 视图, 零拷贝)。
 
-    参数:
-        name: 张量名 (见 names())
+        参数:
+            name: 张量名 (见 names())
 
-    返回:
-        np.memmap: shape/dtype 与保存时一致
-    """
+        返回:
+            np.memmap: shape/dtype 与保存时一致
+        """
         t = self._tensors[name]
         return np.memmap(
             self.path,

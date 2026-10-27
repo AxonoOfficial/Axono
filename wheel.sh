@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Axono wheel 打包脚本 (Linux) —— 与 install.sh 相同的 CUDA 检测逻辑,
-# 产出 pip 可安装的 .whl 到 dist/。
+# 默认产出 .whl 到仓库根目录; --outdir 可指定输出目录。
 #
 # 用法:
 #   bash wheel.sh                   # 自动检测 CUDA 兼容环境并编入 wheel
@@ -8,15 +8,15 @@
 #   bash wheel.sh --no-cuda         # 强制纯 CPU
 #   bash wheel.sh --cuda --ignore-drivers          # 强制 CUDA, 只查 nvcc
 #                                    # (CI/无卡编译机; 运行时才需要驱动)
-#   AXONO_CUDA_TAG=cu126 bash wheel.sh --cuda ...   # CUDA wheel 文件名加
+#   AXONO_CUDA_TAG=cu126 bash wheel.sh --cuda       # CUDA wheel 文件名加
 #                                    # 本地版本段 (axono-0.2.0+cu126-...)
-#   bash wheel.sh --no-cuda --outdir /tmp/wheels   # 额外参数透传给 pip wheel
+#   bash wheel.sh --no-cuda --outdir dist          # 产出到 dist/
 #
-# 安装产物:
-#   pip install dist/axono-*.whl
+# 安装 --outdir dist 的产物 (目录中应只有一个匹配的 Axono wheel):
+#   python3 -m pip install dist/axono-*.whl
 #
-# 注意: CUDA wheel 链接本机 CUDA 库, 目标机器需同代或更新驱动;
-#       分发请按 CUDA 版本分目录 (参考 README 的 cu118/cu125/cu126 索引)。
+# 注意: 运行 CUDA wheel 需要兼容的 CUDA 运行库、驱动和 GPU。
+#       选择与目标 Python、平台及 CUDA 环境匹配的 wheel。
 
 set -euo pipefail
 

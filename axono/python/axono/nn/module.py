@@ -26,8 +26,8 @@ class Module:
             def forward(self, x):
                 return self.fc2(axono.gelu(self.fc1(x)))
 
+        axono.set_backend("cuda")    # 在构造模型前设置默认设备
         m = MLP()
-        m.to("cuda")                 # 迁移全部参数 (继承自 Module)
         m.cast_linear_fp16()         # Linear 权重 FP16 常驻
         y = m(x)
 
@@ -81,7 +81,7 @@ class Module:
         self._cpp_module.add_weight(name, tensor)
 
     def parameters(self) -> Dict[str, Tensor]:
-        """返回 {名称: Tensor} 参数字典 (含子模块, 名字用点号连接)。"""
+        """返回参数字典 (含子模块, 名字用点号连接); 未启用的 bias 为 None。"""
         out: Dict[str, Tensor] = {}
         for name, t in self._parameters.items():
             out[name] = t
@@ -106,27 +106,27 @@ class Module:
         return self._parameters["bias"]
 
     def state_dict(self) -> dict:
-        """返回 {扁平名: Tensor} 参数字典 (含子模块, 点号连接)。"""
+        """返回 {扁平名: Tensor|None} 参数字典; 张量与模型共享存储, 不复制数据。"""
         return dict(self.parameters())
 
     def load_state_dict(self, sd: dict, strict: bool = True) -> None:
         """从 {扁平名: Tensor|ndarray} 加载参数 (原地 copy, 保持设备)。
 
-        值为 Tensor 时走设备间直拷 (一次 H2D/D2D), 避免经 numpy 中转;
-        值为 memmap ndarray 时直接 copy_from_numpy (无 astype 转换, dtype
-        必须一致 — fp16 .axm 会先显式转换)。
+        Tensor 值须与目标参数 dtype、元素数一致, 通过 copy_from 拷贝。
+        ndarray (含 memmap) 先转为 float32 再拷贝到参数, 因此目标参数须为
+        FLOAT32; 若需 FP16 Linear, 请先加载权重再调用 cast_linear_fp16()。
 
         参数:
             sd: {扁平参数名: Tensor 或 ndarray} — 扁平名以点号连接
                 (如 "layers.0.weight"); 键顺序无关
-            strict: True 时要求键完全匹配 (多余/缺失报错)
+            strict: True 时对缺少的非 None 参数报错; 多余的键会被忽略
 
         抛出:
-            KeyError: strict 模式下键不匹配
+            KeyError: strict=True 时缺少参数 (此前匹配的参数可能已更新)
 
         示例::
 
-            m.load_state_dict(torch_sd)          # 从转换脚本产出加载
+            m.load_state_dict(numpy_sd)          # 值为 NumPy 数组的字典
             m.load_state_dict(np.load("w.npz"))  # ndarray 亦可
         """
         import numpy as np
@@ -160,12 +160,13 @@ class Module:
     def cast_linear_fp16(self) -> None:
         """把本模块树内所有 Linear 的 weight/bias 原地转为 FLOAT16 常驻。
 
-        之后 Linear 前向自动走 fp16 tensor-core 混合路径 (输入输出仍是
-        fp32, 内部 cast), 显存权重部分减半, gemm 提速。
+        CUDA Linear 支持 FP16 权重、FP32 输入输出的混合路径; CPU Linear
+        不支持此混合路径。FP32 Linear 参数转为 FP16 后存储字节数减半。
 
         示例::
 
-            m = MLP().to("cuda")
+            axono.set_backend("cuda")
+            m = MLP()
             m.cast_linear_fp16()      # 全部 Linear 权重 → FP16
             y = m(x)                  # 自动走 tensor core
         """
