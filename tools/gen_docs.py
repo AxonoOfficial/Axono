@@ -15,6 +15,7 @@
 
 用法: python3 tools/gen_docs.py [repo_root] [out.json]
 """
+
 from __future__ import annotations
 
 import ast
@@ -79,21 +80,37 @@ def extract_python(root: Path) -> list:
             funcs, classes = [], []
             for node in tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if (node.name.startswith("_") and node.name != "__init__"
-                            and not node.name.startswith("_tensor_")):
+                    if (
+                        node.name.startswith("_")
+                        and node.name != "__init__"
+                        and not node.name.startswith("_tensor_")
+                    ):
                         continue
                     doc = ast.get_docstring(node)
                     if doc:
-                        funcs.append({"name": node.name, "signature": _sig_of(node),
-                                      "doc": _clean_doc(doc)})
+                        funcs.append(
+                            {
+                                "name": node.name,
+                                "signature": _sig_of(node),
+                                "doc": _clean_doc(doc),
+                            }
+                        )
                 elif isinstance(node, ast.ClassDef):
                     doc = _clean_doc(ast.get_docstring(node) or "")
                     methods = []
                     for sub in node.body:
-                        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and \
-                                not sub.name.startswith("_") and ast.get_docstring(sub):
-                            methods.append({"name": sub.name, "signature": _sig_of(sub),
-                                            "doc": _clean_doc(ast.get_docstring(sub))})
+                        if (
+                            isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and not sub.name.startswith("_")
+                            and ast.get_docstring(sub)
+                        ):
+                            methods.append(
+                                {
+                                    "name": sub.name,
+                                    "signature": _sig_of(sub),
+                                    "doc": _clean_doc(ast.get_docstring(sub)),
+                                }
+                            )
                     classes.append({"name": node.name, "doc": doc, "methods": methods})
             if not (mod_doc or funcs or classes):
                 continue
@@ -104,17 +121,29 @@ def extract_python(root: Path) -> list:
                 if f["name"] in _rename:
                     f["name"] = _rename[f["name"]]
                 elif f["name"].startswith("_tensor_"):
-                    f["name"] = f["name"][len("_tensor_"):]
-            modname = rel.replace("axono/python/", "").replace("/", ".").removesuffix(".py")
-            modules.append({"id": modname, "path": rel, "lang": "python",
-                            "doc": mod_doc, "functions": funcs, "classes": classes})
+                    f["name"] = f["name"][len("_tensor_") :]
+            modname = (
+                rel.replace("axono/python/", "").replace("/", ".").removesuffix(".py")
+            )
+            modules.append(
+                {
+                    "id": modname,
+                    "path": rel,
+                    "lang": "python",
+                    "doc": mod_doc,
+                    "functions": funcs,
+                    "classes": classes,
+                }
+            )
     return modules
 
 
 # C++ 头文件: 抽取 namespace axono 内 class / 函数声明前的 // 注释
 CPP_RE_METHOD = re.compile(
-    r"(?P<comment>(?:^\s*//[^\n]*\n)*)"           # 前置 // 注释块
-    r"^\s*(?:static\s+)?[\w:<>,&*\s]+?\b(?P<name>\w+)\s*\(", re.M)
+    r"(?P<comment>(?:^\s*//[^\n]*\n)*)"  # 前置 // 注释块
+    r"^\s*(?:static\s+)?[\w:<>,&*\s]+?\b(?P<name>\w+)\s*\(",
+    re.M,
+)
 
 
 def extract_cpp(root: Path) -> list:
@@ -129,12 +158,20 @@ def extract_cpp(root: Path) -> list:
             # 类级: "class Tensor {" 前的注释块
             entries = []
             for m in re.finditer(
-                    r"(?P<comment>(?:^[ \t]*//[^\n]*\n)*)"
-                    r"^[ \t]*class\s+(?P<name>\w+)[^;{]*\{", text, re.M):
+                r"(?P<comment>(?:^[ \t]*//[^\n]*\n)*)"
+                r"^[ \t]*class\s+(?P<name>\w+)[^;{]*\{",
+                text,
+                re.M,
+            ):
                 doc = _clean_doc(m.group("comment").replace("//", ""))
                 if doc:
-                    entries.append({"name": "class " + m.group("name"),
-                                    "signature": "", "doc": doc})
+                    entries.append(
+                        {
+                            "name": "class " + m.group("name"),
+                            "signature": "",
+                            "doc": doc,
+                        }
+                    )
             for m in CPP_RE_METHOD.finditer(text):
                 name = m.group("name")
                 if name in ("if", "for", "while", "switch", "sizeof", "return"):
@@ -144,11 +181,23 @@ def extract_cpp(root: Path) -> list:
                     entries.append({"name": name, "signature": "", "doc": doc})
             if not entries:
                 continue
-            modname = rel.replace("include/axono/", "cxx.").replace("/", ".").removesuffix(".h")
-            modules.append({"id": modname, "path": rel, "lang": "cpp",
-                            "doc": "", "functions": [],
-                            "classes": [{"name": rel.split("/")[-1], "doc": "",
-                                         "methods": entries}]})
+            modname = (
+                rel.replace("include/axono/", "cxx.")
+                .replace("/", ".")
+                .removesuffix(".h")
+            )
+            modules.append(
+                {
+                    "id": modname,
+                    "path": rel,
+                    "lang": "cpp",
+                    "doc": "",
+                    "functions": [],
+                    "classes": [
+                        {"name": rel.split("/")[-1], "doc": "", "methods": entries}
+                    ],
+                }
+            )
     return modules
 
 

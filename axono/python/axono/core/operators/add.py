@@ -18,9 +18,8 @@
 - 非 inplace 路径保证输入不被修改 (纯函数语义)。
 """
 
-import numpy as np
-
 import libaxono as _l
+import numpy as np
 
 from ..config import is_inplace_enabled
 from ..tensor import Tensor

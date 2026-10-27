@@ -20,11 +20,9 @@ for _candidate in (_pkg_dir, os.path.join(_pkg_dir, "library")):
     if _candidate not in sys.path:
         sys.path.append(_candidate)
 
-from libaxono import DataType, Status  # noqa: E402
-from libaxono import cuda_available  # noqa: E402
+from libaxono import DataType, Status, cuda_available  # noqa: E402
 
-from . import operators  # noqa: E402
-from . import ops  # noqa: E402
+from . import operators, ops  # noqa: E402
 from .config import is_inplace_enabled, set_inplace_enabled  # noqa: E402
 from .tensor import Tensor, get_default_device, set_default_device  # noqa: E402
 

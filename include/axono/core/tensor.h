@@ -123,8 +123,8 @@ class Tensor {
  private:
   DataType dtype_ = DataType::FLOAT32;
   Shape shape_;
-  std::string device_ =
-      "cpu";  size_t num_elements_ = 0;
+  std::string device_ = "cpu";
+  size_t num_elements_ = 0;
   std::shared_ptr<void> data_;
 };
 

@@ -12,7 +12,6 @@
 """nn.Module / nn.Linear 测试。"""
 
 import numpy as np
-import pytest
 
 import axono
 from axono.nn import Linear, Module
