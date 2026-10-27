@@ -7,6 +7,7 @@
 所有层继承 ``nn.Module``, 参数自动注册, 支持 ``load_state_dict`` /
 ``state_dict`` 与 C++ 侧权重容器同步。
 """
+
 from __future__ import annotations
 
 import numpy as np

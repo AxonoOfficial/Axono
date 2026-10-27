@@ -14,58 +14,62 @@ on:
 
 jobs:
   format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
-    
+    env:
+      TARGET_BRANCH: ${{ inputs.branch }}
+      COMMIT_MESSAGE: ${{ inputs.commit_message }}
+
     steps:
+    - name: Validate target branch
+      run: git check-ref-format "refs/heads/$TARGET_BRANCH"
+
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
-    
+        ref: refs/heads/${{ inputs.branch }}
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.13.7'
-    
+        python-version: '3.13'
+
     - name: Install dependencies
-      run: |
-        pip install ruff
-    
+      run: python -m pip install -r tools/requirements-style.txt
+
     - name: Format Python code with ruff
       run: |
+        ruff check --fix .
         ruff format .
-    
-    - name: Install clang-format
+
+    - name: Check Python lint and formatting
       run: |
-        sudo apt-get update
-        sudo apt-get install -y clang-format
-    
+        ruff check .
+        ruff format --check .
+
     - name: Format C++ code with clang-format
       run: |
-        # Find all C++ files
-        find . -name "*.cpp" -o -name "*.hpp" -o -name "*.cc" -o -name "*.h" -o -name "*.cxx" -o -name "*.hxx" | while read file; do
-          clang-format -i -style=file "$file"
-        done
-    
+        git ls-files -z -- '*.cpp' '*.hpp' '*.h' '*.cc' '*.cxx' '*.hxx' | xargs -0 -r clang-format -i
+
     - name: Check if there are changes
       id: check-changes
       run: |
         if git diff --quiet; then
           echo "No changes detected"
-          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "has_changes=false" >> "$GITHUB_OUTPUT"
         else
           echo "Changes detected"
-          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
         fi
-    
+
     - name: Commit and push changes
       if: steps.check-changes.outputs.has_changes == 'true'
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add .
-        git commit -m "${{ github.event.inputs.commit_message }}"
-        git push origin ${{ github.event.inputs.branch }}
+        git add --update
+        git commit -m "$COMMIT_MESSAGE"
+        git push origin "HEAD:refs/heads/$TARGET_BRANCH"

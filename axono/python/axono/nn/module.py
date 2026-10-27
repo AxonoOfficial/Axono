@@ -2,8 +2,6 @@
 # 轻量 nn 模块基类: 纯 Python 管理参数, 底层 C++ Module 仅做权重容器同步。
 from __future__ import annotations
 
-from typing import Dict
-
 from libaxono import Module as _Module
 
 from ..core import Tensor
@@ -37,13 +35,13 @@ class Module:
     """
 
     def __init__(self):
-        self._parameters: Dict[str, Tensor] = {}
-        self._submodules: Dict[str, "Module"] = {}
+        self._parameters: dict[str, Tensor] = {}
+        self._submodules: dict[str, Module] = {}
         self._cpp_module = _Module()
         self._is_training = True
         self._name = self.__class__.__name__
 
-    def add_submodule(self, name: str, module: "Module") -> "Module":
+    def add_submodule(self, name: str, module: Module) -> Module:
         """注册子模块 (其参数会并入 parameters()/weights())。"""
         if not isinstance(module, Module):
             raise TypeError(f"add_submodule 需要 Module, 得到 {type(module)}")
@@ -80,9 +78,9 @@ class Module:
         self._parameters[name] = tensor
         self._cpp_module.add_weight(name, tensor)
 
-    def parameters(self) -> Dict[str, Tensor]:
+    def parameters(self) -> dict[str, Tensor]:
         """返回参数字典 (含子模块, 名字用点号连接); 未启用的 bias 为 None。"""
-        out: Dict[str, Tensor] = {}
+        out: dict[str, Tensor] = {}
         for name, t in self._parameters.items():
             out[name] = t
         for sub_name, sub in self._submodules.items():
@@ -185,11 +183,11 @@ class Module:
                 m._parameters[pname] = t16
                 m._cpp_module.add_weight(pname, t16)
 
-    def train(self, mode: bool = True) -> "Module":
+    def train(self, mode: bool = True) -> Module:
         self._is_training = mode
         return self
 
-    def eval(self) -> "Module":
+    def eval(self) -> Module:
         return self.train(False)
 
     def forward(self, *args, **kwargs):  # pragma: no cover - 由子类实现

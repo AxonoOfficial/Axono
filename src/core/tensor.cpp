@@ -38,8 +38,8 @@ Tensor::Tensor(DataType dtype, const Shape &shape)
   InitializeStorage();
 }
 
-Tensor::Tensor(DataType dtype, const Shape &shape,
-               const std::string &device)    : dtype_(dtype), shape_(shape), device_(device) {
+Tensor::Tensor(DataType dtype, const Shape &shape, const std::string &device)
+    : dtype_(dtype), shape_(shape), device_(device) {
   num_elements_ = CalculateNumElements(shape_);
   InitializeStorage();
 }

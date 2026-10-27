@@ -18,7 +18,7 @@ jobs:
         with:
           script: |
             const body = context.payload.pull_request.body || "";
-            const lines = body.split(/\r?\n/);
+            const lines = body.replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/);
 
             // 1. 必须出现的三段标题
             const required = [
@@ -37,10 +37,11 @@ jobs:
             function pickValue(startHdr) {
               const idx = lines.findIndex(l => l.trim() === startHdr);
               if (idx === -1) return null;
-              // 下一行非空即为填写内容
+              // 读取本节第一行非空内容
               for (let i = idx + 1; i < lines.length; i++) {
                 const v = lines[i].trim();
                 if (v === '') continue;
+                if (/^#{1,6}(?:\s|$)/.test(v)) break;
                 return v.replace(/^-?\s*/, '');   // 去掉列表符号
               }
               return '';

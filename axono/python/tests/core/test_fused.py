@@ -1,7 +1,6 @@
 """axono.fused 融合算子测试: 数值 vs 手工分解实现。"""
 
 import numpy as np
-import pytest
 
 import axono
 from axono import Tensor

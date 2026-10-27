@@ -27,8 +27,8 @@ Axono Tensor — v0.2 重构。
 
 from __future__ import annotations
 
-import numpy as np
 import libaxono as _l
+import numpy as np
 from libaxono import DataType, Status
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ _DTYPE_TO_ACCESSOR = {
 # ---------------------------------------------------------------------------
 # 附加到绑定类上的便利方法
 # ---------------------------------------------------------------------------
-def _tensor_from_numpy(cls, array: np.ndarray) -> "Tensor":
+def _tensor_from_numpy(cls, array: np.ndarray) -> Tensor:
     """从 numpy 数组创建 Tensor (拷贝数据)。
 
     非 C 连续数组自动 ascontiguousarray; 不支持的 dtype 自动转 float32。
@@ -142,7 +142,7 @@ def _tensor_from_numpy(cls, array: np.ndarray) -> "Tensor":
     return tensor
 
 
-def _tensor_from_numpy_ref(array: np.ndarray) -> "Tensor":
+def _tensor_from_numpy_ref(array: np.ndarray) -> Tensor:
     """零拷贝借用 numpy 内存构造 CPU Tensor (不复制)。
 
     返回的 Tensor 直接引用 array 的内存 (不复制), 适合 mmap 权重加载:
@@ -175,7 +175,7 @@ def _tensor_from_numpy_ref(array: np.ndarray) -> "Tensor":
     return getattr(Tensor, name)(arr)
 
 
-def _tensor_to_device(self, device: str) -> "Tensor":
+def _tensor_to_device(self, device: str) -> Tensor:
     """设备迁移 (torch 语义)。
 
     同设备调用返回自身 (零拷贝, 不复制); 跨设备走 C++ 迁移, 返回新
@@ -200,7 +200,7 @@ def _tensor_to_device(self, device: str) -> "Tensor":
     return _orig_to(self, device)
 
 
-def _tensor_cast_to(self, target: "DataType") -> "Tensor":
+def _tensor_cast_to(self, target: DataType) -> Tensor:
     """dtype 类型转换 (返回新 Tensor)。
 
     CPU/CUDA 支持 FLOAT16 与 FLOAT32 互转, CPU 另支持 INT8 转 FLOAT32。
@@ -245,7 +245,7 @@ def _tensor_to_numpy(self) -> np.ndarray:
     return getattr(self, name)()
 
 
-def _tensor_copy_from_numpy(self, array: np.ndarray) -> "Tensor":
+def _tensor_copy_from_numpy(self, array: np.ndarray) -> Tensor:
     """原地写入 numpy 数据 (形状与 dtype 须与当前张量完全匹配)。
 
     常用于把新 batch 写入 CUDA Graph 捕获的静态输入缓冲。
@@ -278,7 +278,7 @@ def _tensor_is_cuda(self) -> bool:
     return self.is_cuda
 
 
-def _tensor_T(self) -> "Tensor":
+def _tensor_T(self) -> Tensor:  # noqa: N802 - matches Tensor.T
     """2D 快捷转置 (等价 transpose(-2, -1))。
 
     示例::
@@ -290,7 +290,7 @@ def _tensor_T(self) -> "Tensor":
     return self.transpose()
 
 
-def _tensor_reshape(self, new_shape) -> "Tensor":
+def _tensor_reshape(self, new_shape) -> Tensor:
     """改形状 (原地, 支持 -1 自动推断)。
 
     元素总数不变; 至多一个维度可为 -1 (自动由其余维度推断)。
@@ -333,70 +333,70 @@ def _tensor_reshape(self, new_shape) -> "Tensor":
     return self
 
 
-def _tensor_resize(self, new_shape) -> "Tensor":
+def _tensor_resize(self, new_shape) -> Tensor:
     st = _orig["resize"](self, list(new_shape))
     if st != Status.OK:
         raise RuntimeError(f"Resize failed with status: {st}")
     return self
 
 
-def _tensor_fill_zero(self) -> "Tensor":
+def _tensor_fill_zero(self) -> Tensor:
     st = _orig["fill_zero"](self)
     if st != Status.OK:
         raise RuntimeError(f"Fill zero failed with status: {st}")
     return self
 
 
-def _tensor_fill(self, value) -> "Tensor":
+def _tensor_fill(self, value) -> Tensor:
     st = _orig["fill"](self, value)
     if st != Status.OK:
         raise RuntimeError(f"Fill failed with status: {st}")
     return self
 
 
-def _tensor_matmul(self, other) -> "Tensor":
+def _tensor_matmul(self, other) -> Tensor:
     from .operators import matmul
 
     return matmul(self, other)
 
 
-def _tensor_add(self, other) -> "Tensor":
+def _tensor_add(self, other) -> Tensor:
     from .operators import add
 
     return add(self, other)
 
 
-def _tensor_sub(self, other) -> "Tensor":
+def _tensor_sub(self, other) -> Tensor:
     from .operators import sub
 
     return sub(self, other)
 
 
-def _tensor_mul(self, other) -> "Tensor":
+def _tensor_mul(self, other) -> Tensor:
     from .operators import mul
 
     return mul(self, other)
 
 
-def _tensor_truediv(self, other) -> "Tensor":
+def _tensor_truediv(self, other) -> Tensor:
     from .operators import div
 
     return div(self, other)
 
 
-def _tensor_neg(self) -> "Tensor":
+def _tensor_neg(self) -> Tensor:
     from .ops import neg
 
     return neg(self)
 
 
-def _tensor_abs(self) -> "Tensor":
+def _tensor_abs(self) -> Tensor:
     from .ops import abs as _abs
 
     return _abs(self)
 
 
-def _tensor_is_same_shape(self, other: "Tensor") -> bool:
+def _tensor_is_same_shape(self, other: Tensor) -> bool:
     return self.is_same_shape(other)
 
 
@@ -406,7 +406,7 @@ def _tensor_randn(
     device: str | None = None,
     mean: float = 0.0,
     stddev: float = 1.0,
-) -> "Tensor":
+) -> Tensor:
     """创建正态分布随机张量 (可指定均值与标准差)。
 
     参数:
@@ -431,7 +431,7 @@ def _tensor_randn(
 
 def _tensor_zeros(
     shape, dtype: DataType = DataType.FLOAT32, device: str | None = None
-) -> "Tensor":
+) -> Tensor:
     """创建全 0 张量。
 
     示例::
@@ -446,7 +446,7 @@ def _tensor_zeros(
 
 def _tensor_ones(
     shape, dtype: DataType = DataType.FLOAT32, device: str | None = None
-) -> "Tensor":
+) -> Tensor:
     """创建全 1 张量。
 
     示例::
@@ -460,18 +460,20 @@ def _tensor_ones(
 
 def _tensor_full(
     shape, value, dtype: DataType = DataType.FLOAT32, device: str | None = None
-) -> "Tensor":
+) -> Tensor:
     tensor = Tensor(dtype, list(shape), device=device or get_default_device())
     tensor.fill(value)
     return tensor
 
 
-def _tensor_create_like(other: "Tensor") -> "Tensor":
+def _tensor_create_like(other: Tensor) -> Tensor:
     return _l.Tensor.create_like(other)
 
 
 def _attach() -> None:
     """把便利方法挂到绑定类上 (幂等)。"""
+    global _orig, _orig_to
+
     orig = {
         "to": _l.Tensor.to,
         "reshape": _l.Tensor.reshape,
@@ -480,8 +482,8 @@ def _attach() -> None:
         "fill": _l.Tensor.fill,
         "randn": _l.Tensor.randn,
     }
-    globals()["_orig"] = orig
-    globals()["_orig_to"] = orig["to"]
+    _orig = orig
+    _orig_to = orig["to"]
 
     # classmethod / staticmethod 工厂
     Tensor.from_numpy = classmethod(_tensor_from_numpy)
